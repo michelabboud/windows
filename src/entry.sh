@@ -13,7 +13,6 @@ cd /run
 . reset.sh      # Initialize system
 . server.sh     # Start webserver
 . define.sh     # Define versions
-. mido.sh       # Download Windows
 . install.sh    # Run installation
 . disk.sh       # Initialize disks
 . display.sh    # Initialize graphics

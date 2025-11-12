@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 ARG VERSION_ARG="latest"
 FROM scratch AS build-amd64
 
@@ -25,7 +23,10 @@ RUN set -eu && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 COPY --chmod=755 ./src /run/
+RUN dos2unix /run/*
+
 COPY --chmod=755 ./assets /run/assets
+RUN dos2unix /run/assets/*
 
 ADD --chmod=664 https://github.com/qemus/virtiso-whql/releases/download/v1.9.48-0/virtio-win-1.9.48.tar.xz /var/drivers.txz
 
@@ -35,12 +36,11 @@ FROM build-${TARGETARCH}
 ARG VERSION_ARG="0.00"
 RUN echo "$VERSION_ARG" > /run/version
 
-VOLUME /storage
 EXPOSE 3389 8006
 
-ENV VERSION="11"
 ENV RAM_SIZE="4G"
 ENV CPU_CORES="2"
-ENV DISK_SIZE="64G"
+ENV DISK_SIZE="30G"
+ENV VERSION="win11e"
 
 ENTRYPOINT ["/usr/bin/tini", "-s", "/run/entry.sh"]

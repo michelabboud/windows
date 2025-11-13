@@ -97,10 +97,10 @@ docker run -it --rm \
 
   ```yaml
   volumes:
-    - /var/win:/storage
+    - ./windows:/storage
   ```
 
-  Replace the example path `/var/win` with the desired storage folder.
+  Replace the example path `./windows` with the desired storage folder.
 
 ### How do I change the size of the disk?
 

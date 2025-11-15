@@ -1,8 +1,9 @@
 services:
-  windows:
+  prepare-windows:
     image: windows-local:latest
-    container_name: windows
+    container_name: prepare-windows
     environment:
+      ISO_FILE: "${ISO_FILE:?Error: required env var not set}"
       STORAGE_DIR: "${STORAGE_DIR:?Error: required env var not set}"
     devices:
       - /dev/kvm
@@ -14,4 +15,5 @@ services:
       - 3389:3389/udp
     stop_grace_period: 2m
     volumes:
+      - ${ISO_FILE}:/custom.iso
       - ${STORAGE_DIR}:/storage

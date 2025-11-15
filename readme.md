@@ -16,13 +16,13 @@ Local Windows inside a Docker container.
 
 To prepare a golden image from a custom ISO:
 ```bash
-STORAGE=/path/to/storage ISO=/path/to/custom.iso \
-  docker compose --profile prepare-golden-image up
+STORAGE_DIR=/path/to/storage ISO_FILE=/path/to/custom.iso \
+  docker compose -f compose.prepare.yml up
 ```
 
-Start the container:
+Start the container (using the golden image):
 ```bash
-STORAGE=/path/to/storage docker compose up
+STORAGE_DIR=/path/to/storage docker compose up
 ```
 
 ### Via Docker CLI:

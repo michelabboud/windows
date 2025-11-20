@@ -76,6 +76,12 @@ finish() {
   local pid
   local cnt=0
   local reason=$1
+  local pids=(
+        "/var/run/tpm.pid"
+        "/var/run/wsdd.pid"
+        "/var/run/samba/nmbd.pid"
+        "/var/run/samba/smbd.pid"
+      )
 
   touch "$QEMU_END"
 
@@ -114,21 +120,12 @@ finish() {
     fi
   fi
 
-  pid="/var/run/tpm.pid"
-  [ -s "$pid" ] && pKill "$(<"$pid")"
-  rm -f "$pid"
-
-  pid="/var/run/wsdd.pid"
-  [ -s "$pid" ] && pKill "$(<"$pid")"
-  rm -f "$pid"
-
-  pid="/var/run/samba/nmbd.pid"
-  [ -s "$pid" ] && pKill "$(<"$pid")"
-  rm -f "$pid"
-
-  pid="/var/run/samba/smbd.pid"
-  [ -s "$pid" ] && pKill "$(<"$pid")"
-  rm -f "$pid"
+  for pid in "${pids[@]}"; do
+      if [[ -s "$pid" ]]; then 
+          pKill "$(cat "$pid")"
+      fi
+      rm -f "$pid"
+  done 
 
   closeNetwork
 

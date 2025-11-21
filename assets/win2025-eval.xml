@@ -33,7 +33,8 @@
             <CreatePartition wcm:action="add">
               <Order>3</Order>
               <Type>Primary</Type>
-              <Extend>true</Extend>
+                <Size>81920</Size>
+                <Extend>false</Extend>
             </CreatePartition>
           </CreatePartitions>
           <ModifyPartitions>
@@ -121,7 +122,10 @@
         <SupportPhone />
         <SupportProvider>Dockur</SupportProvider>
         <SupportURL>https://github.com/dockur/windows/issues</SupportURL>
-      </OEMInformation>
+          <RAM>12288</RAM>
+          <CPU>Cores: 16</CPU>
+          <GPU>AMD Radeon</GPU>
+        </OEMInformation>
       <OEMName>Windows for Docker</OEMName>
     </component>
     <component name="Microsoft-Windows-ErrorReportingCore" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">

@@ -10,31 +10,84 @@ Local Windows inside a Docker container.
 
 ## Usage 🐳
 
-### Via Docker Compose:
+### Building the Image
 
-> See [compose.yml](compose.yml) for the complete configuration.
-
-To prepare a golden image from a custom ISO:
 ```bash
-STORAGE_DIR=/path/to/storage ISO_FILE=/path/to/custom.iso \
-  docker compose -f compose.prepare.yml up
+docker build -t windows-local:latest .
 ```
 
-Start the container (using the golden image):
-```bash
-STORAGE_DIR=/path/to/storage docker compose up
-```
+### Preparing Golden Image (First Time)
 
-### Via Docker CLI:
+Mount your Windows ISO and let it install automatically:
 
 ```bash
 docker run -it --rm \
-  -p 8006:8006 \
+  --name prepare-windows \
   --device=/dev/kvm \
   --cap-add NET_ADMIN \
-  --mount type=bind,source=./custom.iso,target=/custom.iso \
+  --mount type=bind,source=/path/to/windows.iso,target=/custom.iso \
+  -v /path/to/storage:/storage \
+  -p 8006:8006 \
+  -e RAM_SIZE=4G \
+  -e CPU_CORES=2 \
+  -e DISK_SIZE=64G \
   --stop-timeout 120 \
   windows-local:latest
+```
+
+The container will automatically:
+- Install Windows with automated configuration
+- Create a golden image in `/storage`
+- Exit when preparation is complete
+
+### Running from Golden Image
+
+After preparation, start Windows from the saved golden image:
+
+```bash
+docker run -it --rm \
+  --name windows \
+  --device=/dev/kvm \
+  --cap-add NET_ADMIN \
+  -v /path/to/storage:/storage \
+  -p 8006:8006 \
+  -p 3389:3389 \
+  -e RAM_SIZE=8G \
+  -e CPU_CORES=4 \
+  --stop-timeout 120 \
+  windows-local:latest
+```
+
+Access the desktop via browser at http://localhost:8006
+
+### Custom Installation with OEM Scripts
+
+You can provide custom installation scripts that run after installation:
+
+```bash
+docker run -it --rm \
+  --name prepare-windows \
+  --device=/dev/kvm \
+  --cap-add NET_ADMIN \
+  --mount type=bind,source=/path/to/windows.iso,target=/custom.iso \
+  --mount type=bind,source=/path/to/oem,target=/oem \
+  -v /path/to/storage:/storage \
+  -p 8006:8006 \
+  --stop-timeout 120 \
+  windows-local:latest
+```
+
+Create an `/oem/install.bat` script that will execute after installation:
+
+```batch
+@echo off
+REM Example OEM installation script
+
+REM Install additional software
+echo Installing additional packages...
+
+REM Configure system
+echo Custom setup complete!
 ```
 
 ## Compatibility ⚙️
@@ -69,23 +122,21 @@ docker run -it --rm \
 
 ### How do I select the Windows language?
 
-  By default, the English version of Windows will be downloaded. But you can add the `LANGUAGE` environment variable to your compose file, in order to specify an alternative language:
+  By default, the English version of Windows will be downloaded. But you can specify an alternative language using the `LANGUAGE` environment variable:
 
-  ```yaml
-  environment:
-    LANGUAGE: "French"
+  ```bash
+  -e LANGUAGE="French"
   ```
   
   You can choose between: 🇦🇪 Arabic, 🇧🇬 Bulgarian, 🇨🇳 Chinese, 🇭🇷 Croatian, 🇨🇿 Czech, 🇩🇰 Danish, 🇳🇱 Dutch, 🇬🇧 English, 🇪🇪 Estionian, 🇫🇮 Finnish, 🇫🇷 French, 🇩🇪 German, 🇬🇷 Greek, 🇮🇱 Hebrew, 🇭🇺 Hungarian, 🇮🇹 Italian, 🇯🇵 Japanese, 🇰🇷 Korean, 🇱🇻 Latvian, 🇱🇹 Lithuanian, 🇳🇴 Norwegian, 🇵🇱 Polish, 🇵🇹 Portuguese, 🇷🇴 Romanian, 🇷🇺 Russian, 🇷🇸 Serbian, 🇸🇰 Slovak, 🇸🇮 Slovenian, 🇪🇸 Spanish, 🇸🇪 Swedish, 🇹🇭 Thai, 🇹🇷 Turkish and 🇺🇦 Ukrainian.
 
 ### How do I select the keyboard layout?
 
-  If you want to use a keyboard layout or locale that is not the default for your selected language, you can add the `KEYBOARD` and `REGION` variables with a culture code, like this:
+  If you want to use a keyboard layout or locale that is not the default for your selected language, you can specify the `KEYBOARD` and `REGION` variables with a culture code:
 
-  ```yaml
-  environment:
-    REGION: "en-US"
-    KEYBOARD: "en-US"
+  ```bash
+  -e REGION="en-US" \
+  -e KEYBOARD="en-US"
   ```
 
 > [!NOTE]  
@@ -93,22 +144,18 @@ docker run -it --rm \
 
 ### How do I change the storage location?
 
-  To change the storage location, include the following bind mount in your compose file:
+  To change the storage location, modify the volume mount:
 
-  ```yaml
-  volumes:
-    - ./windows:/storage
+  ```bash
+  -v /custom/storage/path:/storage
   ```
-
-  Replace the example path `./windows` with the desired storage folder.
 
 ### How do I change the size of the disk?
 
-  To expand the default size of 64 GB, add the `DISK_SIZE` setting to your compose file and set it to your preferred capacity:
+  To expand the default size of 64 GB, set the `DISK_SIZE` environment variable:
 
-  ```yaml
-  environment:
-    DISK_SIZE: "256G"
+  ```bash
+  -e DISK_SIZE="256G"
   ```
   
 > [!TIP]
@@ -116,11 +163,10 @@ docker run -it --rm \
 
 ### How do I share files with the host?
 
-  Open 'File Explorer' and click on the 'Network' section, you will see a computer called `host.lan`. Double-click it and it will show a folder called `Data`, which can be bound to any folder on your host via the compose file:
+  Open 'File Explorer' and click on the 'Network' section, you will see a computer called `host.lan`. Double-click it and it will show a folder called `Data`, which can be bound to any folder on your host:
 
-  ```yaml
-  volumes:
-    -  /home/user/example:/data
+  ```bash
+  -v /home/user/example:/data
   ```
 
   The example folder `/home/user/example` will be available as ` \\host.lan\Data`.
@@ -130,58 +176,55 @@ docker run -it --rm \
 
 ### How do I run a script after installation?
 
-  To run your own script after installation, you can create a file called `install.bat` and place it in a folder together with any additional files it needs (software to be installed for example). Then bind that folder in your compose file like this:
+  To run your own script after installation, you can create a file called `install.bat` and place it in a folder together with any additional files it needs (software to be installed for example). Then bind that folder:
 
-  ```yaml
-  volumes:
-    -  /home/user/example:/oem
+  ```bash
+  --mount type=bind,source=/home/user/example,target=/oem
   ```
 
   The example folder `/home/user/example` will be copied to `C:\OEM` during installation and the containing `install.bat` will be executed during the last step.
+
+  See the [Custom Installation with OEM Scripts](#custom-installation-with-oem-scripts) section above for a complete example.
 
 ### How do I change the amount of CPU or RAM?
 
   By default, the container will be allowed to use a maximum of 2 CPU cores and 4 GB of RAM.
 
-  If you want to adjust this, you can specify the desired amount using the following environment variables:
+  If you want to adjust this, specify the desired amount:
 
-  ```yaml
-  environment:
-    RAM_SIZE: "8G"
-    CPU_CORES: "4"
+  ```bash
+  -e RAM_SIZE="8G" \
+  -e CPU_CORES="4"
   ```
 
 ### How do I configure the username and password?
 
   By default, a user called `Docker` is created during the installation, with an empty password.
 
-  If you want to use different credentials, you can change them in your compose file:
+  If you want to use different credentials, specify them:
 
-  ```yaml
-  environment:
-    USERNAME: "bill"
-    PASSWORD: "gates"
+  ```bash
+  -e USERNAME="bill" \
+  -e PASSWORD="gates"
   ```
 
 ### How do I select the Windows language?
 
-  By default, the English version of Windows will be downloaded. But you can add the `LANGUAGE` environment variable to your compose file, in order to specify an alternative language:
+  By default, the English version of Windows will be downloaded. But you can specify an alternative language using the `LANGUAGE` environment variable:
 
-  ```yaml
-  environment:
-    LANGUAGE: "French"
+  ```bash
+  -e LANGUAGE="French"
   ```
   
   You can choose between: 🇦🇪 Arabic, 🇧🇬 Bulgarian, 🇨🇳 Chinese, 🇭🇷 Croatian, 🇨🇿 Czech, 🇩🇰 Danish, 🇳🇱 Dutch, 🇬🇧 English, 🇪🇪 Estonian, 🇫🇮 Finnish, 🇫🇷 French, 🇩🇪 German, 🇬🇷 Greek, 🇮🇱 Hebrew, 🇭🇺 Hungarian, 🇮🇹 Italian, 🇯🇵 Japanese, 🇰🇷 Korean, 🇱🇻 Latvian, 🇱🇹 Lithuanian, 🇳🇴 Norwegian, 🇵🇱 Polish, 🇵🇹 Portuguese, 🇷🇴 Romanian, 🇷🇺 Russian, 🇷🇸 Serbian, 🇸🇰 Slovak, 🇸🇮 Slovenian, 🇪🇸 Spanish, 🇸🇪 Swedish, 🇹🇭 Thai, 🇹🇷 Turkish and 🇺🇦 Ukrainian.
 
 ### How do I select the keyboard layout?
 
-  If you want to use a keyboard layout or locale that is not the default for your selected language, you can add the `KEYBOARD` and `REGION` variables with a culture code, like this:
+  If you want to use a keyboard layout or locale that is not the default for your selected language, you can specify the `KEYBOARD` and `REGION` variables with a culture code:
 
-  ```yaml
-  environment:
-    REGION: "en-US"
-    KEYBOARD: "en-US"
+  ```bash
+  -e REGION="en-US" \
+  -e KEYBOARD="en-US"
   ```
 
 > [!NOTE]  
@@ -210,20 +253,14 @@ docker run -it --rm \
   
   Be sure to modify these values to match your local subnet. 
 
-  Once you have created the network, change your compose file to look as follows:
+  Once you have created the network, add the network configuration to your run command:
 
-  ```yaml
-  services:
-    windows:
-      container_name: windows
-      ..<snip>..
-      networks:
-        vlan:
-          ipv4_address: 192.168.0.100
-
-  networks:
-    vlan:
-      external: true
+  ```bash
+  docker run -it --rm \
+    --name windows \
+    --network vlan \
+    --ip 192.168.0.100 \
+    ...
   ```
  
   An added benefit of this approach is that you won't have to perform any port mapping anymore, since all ports will be exposed by default.
@@ -235,15 +272,12 @@ docker run -it --rm \
 
   After configuring the container for [macvlan](#how-do-i-assign-an-individual-ip-address-to-the-container), it is possible for Windows to become part of your home network by requesting an IP from your router, just like a real PC.
 
-  To enable this mode, add the following lines to your compose file:
+  To enable this mode, add the following to your run command:
 
-  ```yaml
-  environment:
-    DHCP: "Y"
-  devices:
-    - /dev/vhost-net
-  device_cgroup_rules:
-    - 'c *:* rwm'
+  ```bash
+  -e DHCP="Y" \
+  --device=/dev/vhost-net \
+  --device-cgroup-rule='c *:* rwm'
   ```
 
 > [!NOTE]  
@@ -251,38 +285,33 @@ docker run -it --rm \
 
 ### How do I add multiple disks?
 
-  To create additional disks, modify your compose file like this:
-  
-  ```yaml
-  environment:
-    DISK2_SIZE: "32G"
-    DISK3_SIZE: "64G"
-  volumes:
-    - /home/example:/storage2
-    - /mnt/data/example:/storage3
+  To create additional disks, add the following to your run command:
+
+  ```bash
+  -e DISK2_SIZE="32G" \
+  -e DISK3_SIZE="64G" \
+  -v /home/example:/storage2 \
+  -v /mnt/data/example:/storage3
   ```
 
 ### How do I pass-through a disk?
 
-  It is possible to pass-through disk devices directly by adding them to your compose file in this way:
+  It is possible to pass-through disk devices directly:
 
-  ```yaml
-  devices:
-    - /dev/sdb:/disk1
-    - /dev/sdc:/disk2
+  ```bash
+  --device=/dev/sdb:/disk1 \
+  --device=/dev/sdc:/disk2
   ```
 
   Use `/disk1` if you want it to become your main drive (which will be formatted during installation), and use `/disk2` and higher to add them as secondary drives (which will stay untouched).
 
 ### How do I pass-through a USB device?
 
-  To pass-through a USB device, first lookup its vendor and product id via the `lsusb` command, then add them to your compose file like this:
+  To pass-through a USB device, first lookup its vendor and product id via the `lsusb` command, then add them to your run command:
 
-  ```yaml
-  environment:
-    ARGUMENTS: "-device usb-host,vendorid=0x1234,productid=0x1234"
-  devices:
-    - /dev/bus/usb
+  ```bash
+  -e ARGUMENTS="-device usb-host,vendorid=0x1234,productid=0x1234" \
+  --device=/dev/bus/usb
   ```
 
 > [!IMPORTANT]
@@ -307,5 +336,5 @@ docker run -it --rm \
 
   - you are not using a cloud provider, as most of them do not allow nested virtualization for their VPS's.
 
-  If you didn't receive any error from `kvm-ok` at all, but the container still complains that `/dev/kvm` is missing, it might help to add `privileged: true` to your compose file (or `--privileged` to your `run` command), to rule out any permission issue.
+  If you didn't receive any error from `kvm-ok` at all, but the container still complains that `/dev/kvm` is missing, try adding `--privileged` to your `run` command to rule out any permission issue.
   

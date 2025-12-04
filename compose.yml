@@ -2,8 +2,11 @@ services:
   windows:
     image: dockurr/windows
     container_name: windows
+    hostname: win11
     environment:
       VERSION: "11"
+      USERNAME: "admin"
+      PASSWORD: "admin"
     devices:
       - /dev/kvm
       - /dev/net/tun
@@ -14,6 +17,23 @@ services:
       - 3389:3389/tcp
       - 3389:3389/udp
     volumes:
-      - ./windows:/storage
+      - windows_data:/storage
     restart: always
     stop_grace_period: 2m
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 100G
+        reservations:
+          cpus: "4"
+          memory: 100G
+
+volumes:
+  windows_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./windows
+      size: 6T   # 1 terabyte quota

@@ -1,4 +1,3 @@
-
 <domain type="kvm">
   <name>Windows Server 2025 Eval</name>
   <uuid>e5f6a7b8-9012-34cd-ef56-7890abcdef12</uuid>
@@ -12,8 +11,8 @@
   <currentMemory unit="KiB">67108864</currentMemory>
 
   <!-- vCPUs: 32 threads (16 cores × 2 threads) -->
-  <vcpu placement="static">324</vcpu>
-  <iothreads>9</iothreads>
+  <vcpu placement="static">32</vcpu>
+  <iothreads>4</iothreads>
 
   <!-- Modern CPU model -->
   <cpu mode="custom" match="exact" check="full">

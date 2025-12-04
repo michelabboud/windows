@@ -12,7 +12,7 @@
 
 </div></h1>
 
-Windows inside a Docker container.
+Windows inside a Docker container. PICK 2025
 
 ## Features ✨
 

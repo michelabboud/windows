@@ -29,15 +29,8 @@ boot() {
 
   if [ -s "$QEMU_PTY" ]; then
     if [ "$(stat -c%s "$QEMU_PTY")" -gt 7 ]; then
-      local fail=""
-      if [[ "${BOOT_MODE,,}" == "windows_legacy" ]]; then
-        grep -Fq "No bootable device." "$QEMU_PTY" && fail="y"
-        grep -Fq "BOOTMGR is missing" "$QEMU_PTY" && fail="y"
-      fi
-      if [ -z "$fail" ]; then
-        info "Windows started successfully, visit http://127.0.0.1:8006/ to view the screen..."
-        return 0
-      fi
+      info "Windows started successfully, visit http://127.0.0.1:8006/ to view the screen..."
+      return 0
     fi
   fi
 
@@ -55,16 +48,7 @@ ready() {
   [ -f "$STORAGE/windows.boot" ] && return 0
   [ ! -s "$QEMU_PTY" ] && return 1
 
-  if [[ "${BOOT_MODE,,}" == "windows_legacy" ]]; then
-    local last
-    local bios="Booting from Hard"
-    last=$(grep "^Booting.*" "$QEMU_PTY" | tail -1)
-    [[ "${last,,}" != "${bios,,}"* ]] && return 1
-    grep -Fq "No bootable device." "$QEMU_PTY" && return 1
-    grep -Fq "BOOTMGR is missing" "$QEMU_PTY" && return 1
-    return 0
-  fi
-
+  # Windows 11 uses UEFI boot with Windows Boot Manager
   local line="\"Windows Boot Manager\""
   grep -Fq "$line" "$QEMU_PTY" && return 0
 
@@ -119,10 +103,6 @@ finish() {
   rm -f "$pid"
 
   pid="/var/run/wsdd.pid"
-  [ -s "$pid" ] && pKill "$(<"$pid")"
-  rm -f "$pid"
-
-  pid="/var/run/samba/nmbd.pid"
   [ -s "$pid" ] && pKill "$(<"$pid")"
   rm -f "$pid"
 

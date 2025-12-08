@@ -9,7 +9,6 @@ tmp="/tmp/smb"
 rm -rf "$tmp"
 
 rm -f /var/run/wsdd.pid
-rm -f /var/run/samba/nmbd.pid
 rm -f /var/run/samba/smbd.pid
 
 [[ "$SAMBA" == [Nn]* ]] && return 0
@@ -191,38 +190,17 @@ case "${NETWORK,,}" in
     return 0 ;;
 esac
 
-if [[ "${BOOT_MODE:-}" == "windows_legacy" ]]; then
+[[ "$DEBUG" == [Yy1]* ]] && echo "Starting wsddn daemon..."
 
-  # Enable NetBIOS on Windows 7 and lower
-  [[ "$DEBUG" == [Yy1]* ]] && echo "Starting NetBIOS daemon..."
+rm -f /var/log/wsddn.log
 
-  rm -f /var/log/samba/log.nmbd
+if ! wsddn -i "${interfaces%%,*}" -H "$hostname" --unixd --log-file=/var/log/wsddn.log --pid-file=/var/run/wsdd.pid; then
+  SAMBA_DEBUG="Y"
+  error "Failed to start wsddn daemon!"
+fi
 
-  if ! nmbd -l /var/log/samba; then
-    SAMBA_DEBUG="Y"
-    error "Failed to start NetBIOS daemon!"
-  fi
-
-  if [[ "$SAMBA_DEBUG" == [Yy1]* ]]; then
-    tail -fn +0 /var/log/samba/log.nmbd --pid=$$ &
-  fi
-
-else
-
-  # Enable Web Service Discovery on Vista and up
-  [[ "$DEBUG" == [Yy1]* ]] && echo "Starting wsddn daemon..."
-
-  rm -f /var/log/wsddn.log
-
-  if ! wsddn -i "${interfaces%%,*}" -H "$hostname" --unixd --log-file=/var/log/wsddn.log --pid-file=/var/run/wsdd.pid; then
-    SAMBA_DEBUG="Y"
-    error "Failed to start wsddn daemon!"
-  fi
-
-  if [[ "$SAMBA_DEBUG" == [Yy1]* ]]; then
-    tail -fn +0 /var/log/wsddn.log --pid=$$ &
-  fi
-
+if [[ "$SAMBA_DEBUG" == [Yy1]* ]]; then
+  tail -fn +0 /var/log/wsddn.log --pid=$$ &
 fi
 
 return 0

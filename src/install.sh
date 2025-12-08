@@ -235,30 +235,11 @@ finishInstall() {
     fi
   fi
 
-  if [[ "${PLATFORM,,}" == "x64" ]]; then
-    if [[ "${BOOT_MODE,,}" == "windows_legacy" ]]; then
-      file="$STORAGE/windows.mode"
-      writeFile "$BOOT_MODE" "$file"
-      if [[ "${MACHINE,,}" != "q35" ]]; then
-        file="$STORAGE/windows.old"
-        writeFile "$MACHINE" "$file"
-      fi
-    else
-      # Enable secure boot + TPM on manual installs as Win11 requires
-      if [[ "$MANUAL" == [Yy1]* || "$aborted" == [Yy1]* ]]; then
-        if [[ "${DETECTED,,}" == "win11"* ]]; then
-          BOOT_MODE="windows_secure"
-          file="$STORAGE/windows.mode"
-          writeFile "$BOOT_MODE" "$file"
-        fi
-      fi
-      # Enable secure boot on multi-socket systems to workaround freeze
-      if [ -n "$SOCKETS" ] && [[ "$SOCKETS" != "1" ]]; then
-        BOOT_MODE="windows_secure"
-        file="$STORAGE/windows.mode"
-        writeFile "$BOOT_MODE" "$file"
-      fi
-    fi
+  # Windows 11 always uses UEFI with secure boot
+  if [[ "$MANUAL" == [Yy1]* || "$aborted" == [Yy1]* ]] || [ -n "$SOCKETS" ] && [[ "$SOCKETS" != "1" ]]; then
+    BOOT_MODE="windows_secure"
+    file="$STORAGE/windows.mode"
+    writeFile "$BOOT_MODE" "$file"
   fi
 
   if [ -n "${ARGS:-}" ]; then
@@ -300,11 +281,8 @@ abortInstall() {
   [[ "${iso,,}" == *".esd" ]] && exit 60
   [[ "${UNPACK:-}" == [Yy1]* ]] && exit 60
 
+  # Windows 11 always has EFI directory
   efi=$(find "$dir" -maxdepth 1 -type d -iname efi -print -quit)
-
-  if [ -z "$efi" ]; then
-    [[ "${PLATFORM,,}" == "x64" ]] && BOOT_MODE="windows_legacy"
-  fi
 
   if [ -n "$CUSTOM" ]; then
     BOOT="$iso"
@@ -465,11 +443,8 @@ extractESD() {
 
   fKill "progress.sh"
 
-  if [[ "${PLATFORM,,}" == "x64" ]]; then
-    LABEL="CCCOMA_X64FRE_EN-US_DV9"
-  else
-    LABEL="CPBA_A64FRE_EN-US_DV9"
-  fi
+  # Windows 11 x64 only
+  LABEL="CCCOMA_X64FRE_EN-US_DV9"
 
   local msg="Extracting $desc image"
   info "$msg..." && html "$msg..."
@@ -739,8 +714,6 @@ detectImage() {
 
   if [ -n "$DETECTED" ]; then
 
-    skipVersion "${DETECTED,,}" && return 0
-
     if ! setXML "" && [[ "$MANUAL" != [Yy1]* ]]; then
       MANUAL="Y"
       desc=$(printEdition "$DETECTED" "this version")
@@ -823,9 +796,7 @@ prepareImage() {
 
   desc=$(printVersion "$DETECTED" "$DETECTED")
 
-  setMachine "$DETECTED" "$iso" "$dir" "$desc" || return 1
-  skipVersion "$DETECTED" && return 0
-
+  # Windows 11 uses UEFI boot
   if [[ "${BOOT_MODE,,}" != "windows_legacy" ]]; then
 
     [ -f "$dir/$ETFS" ] && [ -f "$dir/$EFISYS" ] && return 0
@@ -919,47 +890,14 @@ addDriver() {
   local path="$2"
   local target="$3"
   local driver="$4"
-  local desc=""
-  local folder=""
+  local folder="w11/amd64"
 
   if [ -z "$id" ]; then
     warn "no Windows version specified for \"$driver\" driver!" && return 0
   fi
 
-  case "${id,,}" in
-    "win7x86"* ) folder="w7/x86" ;;
-    "win7x64"* ) folder="w7/amd64" ;;
-    "win81x64"* ) folder="w8.1/amd64" ;;
-    "win10x64"* ) folder="w10/amd64" ;;
-    "win11x64"* ) folder="w11/amd64" ;;
-    "win2025"* ) folder="2k25/amd64" ;;
-    "win2022"* ) folder="2k22/amd64" ;;
-    "win2019"* ) folder="2k19/amd64" ;;
-    "win2016"* ) folder="2k16/amd64" ;;
-    "win2012"* ) folder="2k12R2/amd64" ;;
-    "win2008"* ) folder="2k8R2/amd64" ;;
-    "win10arm64"* ) folder="w10/ARM64" ;;
-    "win11arm64"* ) folder="w11/ARM64" ;;
-    "winvistax86"* ) folder="2k8/x86" ;;
-    "winvistax64"* ) folder="2k8/amd64" ;;
-  esac
-
-  if [ -z "$folder" ]; then
-    desc=$(printVersion "$id" "$id")
-    if [[ "${id,,}" != *"x86"* ]]; then
-      warn "no \"$driver\" driver available for \"$desc\" !" && return 0
-    else
-      warn "no \"$driver\" driver available for the 32-bit version of \"$desc\" !" && return 0
-    fi
-  fi
-
+  # Only supporting Windows 11 x64
   [ ! -d "$path/$driver/$folder" ] && return 0
-
-  case "${id,,}" in
-    "winvista"* )
-      [[ "${driver,,}" == "viorng" ]] && return 0
-      ;;
-  esac
 
   local dest="$path/$target/$driver"
   mkdir -p "$dest" || return 1
@@ -1043,8 +981,6 @@ updateImage() {
   local org="${file//.xml/.org}"
   local dat="${file//.xml/.dat}"
   local desc path src wim xml index result
-
-  skipVersion "${DETECTED,,}" && return 0
 
   if [ ! -s "$asset" ] || [ ! -f "$asset" ]; then
     asset=""
@@ -1190,25 +1126,9 @@ buildImage() {
 
   /run/progress.sh "$out" "$size" "$msg ([P])..." &
 
-  if [[ "${BOOT_MODE,,}" != "windows_legacy" ]]; then
-
-    genisoimage -o "$out" -b "$ETFS" -no-emul-boot -c "$cat" -iso-level 4 -J -l -D -N -joliet-long -relaxed-filenames -V "${LABEL::30}" \
-                  -udf -boot-info-table -eltorito-alt-boot -eltorito-boot "$EFISYS" -no-emul-boot -allow-limited-size -quiet "$dir" 2> "$log" || failed="y"
-
-  else
-
-    case "${DETECTED,,}" in
-      "win2k"* | "winxp"* | "win2003"* )
-        genisoimage -o "$out" -b "$ETFS" -no-emul-boot -boot-load-seg 1984 -boot-load-size 4 -c "$cat" -iso-level 2 -J -l -D -N -joliet-long \
-                      -relaxed-filenames -V "${LABEL::30}" -quiet "$dir" 2> "$log" || failed="y" ;;
-      "win9"* )
-        genisoimage -o "$out" -b "$ETFS" -J -r -V "${LABEL::30}" -quiet "$dir" 2> "$log" || failed="y" ;;
-      * )
-        genisoimage -o "$out" -b "$ETFS" -no-emul-boot -c "$cat" -iso-level 2 -J -l -D -N -joliet-long -relaxed-filenames -V "${LABEL::30}" \
-                      -udf -allow-limited-size -quiet "$dir" 2> "$log" || failed="y" ;;
-    esac
-
-  fi
+  # Windows 11 uses UEFI boot only
+  genisoimage -o "$out" -b "$ETFS" -no-emul-boot -c "$cat" -iso-level 4 -J -l -D -N -joliet-long -relaxed-filenames -V "${LABEL::30}" \
+                -udf -boot-info-table -eltorito-alt-boot -eltorito-boot "$EFISYS" -no-emul-boot -allow-limited-size -quiet "$dir" 2> "$log" || failed="y"
 
   fKill "progress.sh"
 
@@ -1292,10 +1212,7 @@ if ! startInstall; then
 fi
 
 if [ ! -s "$ISO" ] || [ ! -f "$ISO" ]; then
-  if ! downloadImage "$ISO" "$VERSION" "$LANGUAGE"; then
-    rm -f "$ISO" 2> /dev/null || true
-    exit 61
-  fi
+  exit 61
 fi
 
 DIR="$TMP/unpack"

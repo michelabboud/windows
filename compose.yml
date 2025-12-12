@@ -14,6 +14,15 @@ services:
       - 3389:3389/tcp
       - 3389:3389/udp
     volumes:
-      - ./windows:/storage
+      - windows_data:/storage   # VM’s own 2TB disk
     restart: always
     stop_grace_period: 2m
+
+volumes:
+  windows_data:
+    driver: local
+    driver_opts:
+      type: xfs
+      o: pquota
+      device: /var/lib/docker/volumes/windows_data
+      size: 2T   # dedicated 2 terabyte quota

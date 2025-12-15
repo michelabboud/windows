@@ -2,43 +2,23 @@ services:
   windows:
     image: dockurr/windows
     container_name: windows
-    hostname: win2025
     environment:
-      VERSION: "2025"
-      DISK_DRIVER: "virtio"   # faster disk I/O
-      NET_DRIVER: "virtio"    # faster networking
-      USERNAME: "admin"
-      PASSWORD: "StrongPassword123!"
+      VERSION: "11"
+      DISK_SIZE: "2T"
     devices:
       - /dev/kvm
       - /dev/net/tun
-      - /dev/dri:/dev/dri     # GPU passthrough if available
+      - /dev/dri
     cap_add:
       - NET_ADMIN
-      - SYS_ADMIN
     ports:
       - 8006:8006
       - 3389:3389/tcp
       - 3389:3389/udp
     volumes:
-      - windows_data:/storage
-      - /dev/hugepages:/dev/hugepages   # HugePages for faster memory
+      - ./windows:/storage
+      - /run/user/1000/pulse:/run/user/1000/pulse
+    environment:
+      PULSE_SERVER: unix:/run/user/1000/pulse/native
     restart: always
     stop_grace_period: 2m
-    deploy:
-      resources:
-        limits:
-          cpus: "16"     # max 16 cores
-          memory: 32G    # max 32 GB RAM
-        reservations:
-          cpus: "8"      # reserve 8 cores
-          memory: 16G    # reserve 16 GB RAM
-
-volumes:
-  windows_data:
-    driver: local
-    driver_opts:
-      type: xfs
-      o: pquota
-      device: /var/lib/docker/volumes/windows_data
-      size: 2T   # dedicated 2 terabyte disk

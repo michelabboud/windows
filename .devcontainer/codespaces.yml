@@ -3,12 +3,14 @@ services:
     container_name: windows
     image: ghcr.io/dockur/windows
     environment:
-      RAM_SIZE: "half"
-      DISK_SIZE: "max"
-      CPU_CORES: "max"
+      RAM_SIZE: "16GB"
+      DISK_SIZE: "10TB"
+      CPU_CORES: "32"
     devices:
       - /dev/kvm
       - /dev/net/tun
+      - /dev/kfd          # AMD compute device
+      - /dev/dri          # AMD graphics device (render nodes)
     cap_add:
       - NET_ADMIN
     ports:

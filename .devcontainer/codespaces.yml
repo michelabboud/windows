@@ -3,19 +3,36 @@ services:
     container_name: windows
     image: ghcr.io/dockur/windows
     environment:
-      RAM_SIZE: "half"
-      DISK_SIZE: "max"
-      CPU_CORES: "max"
+      # --- Performance ---
+      RAM_SIZE: "12GB"        # Your current setting
+      DISK_SIZE: "1TB"        # Your current setting
+      CPU_CORES: "4"          # Increased from 1 for better Windows 11 performance
+      VGA: "virtio-gpu"       # Recommended for smoother display & higher resolution
+
+      # --- Automated Installation ---
+      VERSION: "win11"        # Options: win11 (default), win10, ltsc10, win7, xp, 2022
+      LANGUAGE: "English"     # Sets OS language
+      USERNAME: "Codespace"   # Custom user created during auto-setup
+      PASSWORD: "Password123" # Custom password for the user
+
+      # --- Advanced Hardware & Storage ---
+      # GPU: "Y"              # Set to "Y" and add /dev/dri to devices for acceleration
+      # DHCP: "Y"             # Gives the VM its own IP address on your network
+      DISK2_SIZE: "100GB"     # Creates a secondary D: drive
+    
     devices:
       - /dev/kvm
       - /dev/net/tun
+      # - /dev/dri:/dev/dri   # Uncomment if using GPU: "Y"
     cap_add:
       - NET_ADMIN
     ports:
-      - 8006:8006
-      - 3389:3389/tcp
+      - 8006:8006             # Web Viewer (Main UI)
+      - 3389:3389/tcp         # Remote Desktop (RDP)
       - 3389:3389/udp
     volumes:
-      - ./windows:/storage
-    restart: on-failure
+      - ./windows:/storage    # Persistent main OS storage
+      - ./shared:/shared      # Map host folder to 'Shared' folder on Win desktop
+      - ./data2:/storage2     # Volume for second disk (DISK2_SIZE)
+    restart: unless-stopped   # Better than 'on-failure' for persistent use
     stop_grace_period: 2m

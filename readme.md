@@ -147,7 +147,7 @@ kubectl apply -f https://raw.githubusercontent.com/dockur/windows/refs/heads/mas
 
 ### How do I share files with the host?
 
-  After installation there will be a folder called `Shared` on your desktop, which can be used to exchange files with the host machine.
+  After installation there will be a folder called `Shared` on your desktop, which can be used to exchange files with the host machine. `Shared` is a link to the `\\host.lan\Data` folder, which can also be accessed directly.
   
   To select a folder on the host for this purpose, include the following bind mount in your compose file:
 

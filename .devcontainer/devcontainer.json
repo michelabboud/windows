@@ -3,6 +3,7 @@
   "service": "windows",
   "containerEnv": {
     "VERSION": "11"
+    "DISK_SIZE": "250GB"
   },
   "forwardPorts": [8006],
   "portsAttributes": {

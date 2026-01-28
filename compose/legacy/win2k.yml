@@ -1,16 +1,20 @@
-include:
-  - ../base-legacy.yml
-
 services:
   win2k:
-    <<: *legacy
+    image: dockurr/windows
     container_name: win2k
-    env_file: ../../.env
+    env_file: ../../.env.legacy
     environment:
       VERSION: "2k"
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
     ports:
       - 8000:8006
       - 3300:3389/tcp
       - 3300:3389/udp
     volumes:
       - ../../data/win2k:/storage
+    restart: unless-stopped
+    stop_grace_period: 2m

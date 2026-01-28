@@ -1,16 +1,20 @@
-include:
-  - ../base-modern.yml
-
 services:
   win2019:
-    <<: *modern
+    image: dockurr/windows
     container_name: win2019
-    env_file: ../../.env
+    env_file: ../../.env.modern
     environment:
       VERSION: "2019"
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
     ports:
       - 8019:8006
       - 3319:3389/tcp
       - 3319:3389/udp
     volumes:
       - ../../data/win2019:/storage
+    restart: unless-stopped
+    stop_grace_period: 2m

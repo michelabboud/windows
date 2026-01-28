@@ -112,39 +112,27 @@ Use `winctl.sh` for easy container management:
 ### Quick Start (Manual)
 
 ```bash
-# Copy environment template
-cp .env.example .env
-
-# Run default (Windows 11)
-docker compose up
-
 # Run specific version
 docker compose -f compose/desktop/win11.yml up win11
 docker compose -f compose/legacy/winxp.yml up winxp
-
-# Run all desktop versions
-docker compose -f compose/desktop.yml up
-
-# Run everything
-docker compose -f compose/all.yml up
 ```
 
 ### Configuration
 
-Edit `.env` to customize resources for all VMs:
+Two pre-configured env files with optimized defaults:
+
+| File | RAM | CPU | Disk | Used By |
+|------|-----|-----|------|---------|
+| `.env.modern` | 8G | 4 | 128G | Win 10/11, Server 2016+ |
+| `.env.legacy` | 2G | 2 | 32G | Win 7/8, Vista, XP, 2000, Server 2003-2012, Tiny |
+
+Edit these files to customize:
 
 ```bash
-# Modern systems (Win 10/11, Server 2016+)
-MODERN_RAM_SIZE=8G
-MODERN_CPU_CORES=4
-MODERN_DISK_SIZE=128G
-
-# Legacy systems (Win 7/8, Vista, XP, 2000, Server 2003-2012, Tiny)
-LEGACY_RAM_SIZE=2G
-LEGACY_CPU_CORES=2
-LEGACY_DISK_SIZE=32G
-
-# Common settings
+# .env.modern or .env.legacy
+RAM_SIZE=8G
+CPU_CORES=4
+DISK_SIZE=128G
 USERNAME=Docker
 PASSWORD=admin
 LANGUAGE=en
@@ -153,18 +141,13 @@ LANGUAGE=en
 ### Folder Structure
 
 ```
+.env.modern              # Modern system defaults (8G RAM)
+.env.legacy              # Legacy system defaults (2G RAM)
 compose/
-├── base-modern.yml      # High-resource profile
-├── base-legacy.yml      # Low-resource profile
-├── all.yml              # All versions
-├── desktop.yml          # Desktop versions
-├── legacy.yml           # Vista, XP, 2000
-├── server.yml           # Server versions
-├── tiny.yml             # Tiny versions
-├── desktop/             # Individual desktop configs
-├── legacy/              # Individual legacy configs
-├── server/              # Individual server configs
-└── tiny/                # Individual tiny configs
+├── desktop/             # Win 11, 10, 8.1, 7
+├── legacy/              # Vista, XP, 2000
+├── server/              # Server 2003-2025
+└── tiny/                # Tiny10, Tiny11
 
 data/                    # VM storage (per-version folders)
 ├── win11/

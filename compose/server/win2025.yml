@@ -1,16 +1,20 @@
-include:
-  - ../base-modern.yml
-
 services:
   win2025:
-    <<: *modern
+    image: dockurr/windows
     container_name: win2025
-    env_file: ../../.env
+    env_file: ../../.env.modern
     environment:
       VERSION: "2025"
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
     ports:
       - 8025:8006
       - 3325:3389/tcp
       - 3325:3389/udp
     volumes:
       - ../../data/win2025:/storage
+    restart: unless-stopped
+    stop_grace_period: 2m

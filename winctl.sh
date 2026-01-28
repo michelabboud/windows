@@ -557,15 +557,15 @@ get_versions_by_category() {
 select_category() {
     {
         header "Select Category"
-        echo ""
-        echo "  ${BOLD}1${RESET}) Desktop (Win 11, 10, 8.1, 7)"
-        echo "  ${BOLD}2${RESET}) Legacy (Vista, XP, 2000)"
-        echo "  ${BOLD}3${RESET}) Server (2025, 2022, 2019, 2016, 2012, 2008, 2003)"
-        echo "  ${BOLD}4${RESET}) Tiny (Tiny11, Tiny10)"
-        echo "  ${BOLD}5${RESET}) All versions"
-        echo "  ${BOLD}6${RESET}) Select individual versions"
-        echo ""
-        echo -n "  Select [1-6]: "
+        printf '\n'
+        printf '  %b) Desktop (Win 11, 10, 8.1, 7)\n' "${BOLD}1${RESET}"
+        printf '  %b) Legacy (Vista, XP, 2000)\n' "${BOLD}2${RESET}"
+        printf '  %b) Server (2025, 2022, 2019, 2016, 2012, 2008, 2003)\n' "${BOLD}3${RESET}"
+        printf '  %b) Tiny (Tiny11, Tiny10)\n' "${BOLD}4${RESET}"
+        printf '  %b) All versions\n' "${BOLD}5${RESET}"
+        printf '  %b) Select individual versions\n' "${BOLD}6${RESET}"
+        printf '\n'
+        printf '  Select [1-6]: '
     } >&2
 
     local choice
@@ -605,7 +605,7 @@ select_versions() {
 
     {
         header "Select Version(s)"
-        echo ""
+        printf '\n'
 
         local i=1
         for v in "${versions[@]}"; do
@@ -615,15 +615,15 @@ select_versions() {
             elif container_exists "$v"; then
                 status="${YELLOW}[stopped]${RESET}"
             fi
-            printf "  ${BOLD}%2d${RESET}) %-10s %-28s %s\n" "$i" "$v" "${VERSION_DISPLAY_NAMES[$v]}" "$status"
+            printf '  %b) %-10s %-28s %b\n' "${BOLD}$(printf '%2d' "$i")${RESET}" "$v" "${VERSION_DISPLAY_NAMES[$v]}" "$status"
             ((i++))
         done
 
-        echo ""
-        echo "  ${BOLD} a${RESET}) Select all"
-        echo "  ${BOLD} q${RESET}) Cancel"
-        echo ""
-        echo -n "  Select (numbers separated by spaces, or 'a' for all): "
+        printf '\n'
+        printf '  %b) Select all\n' "${BOLD} a${RESET}"
+        printf '  %b) Cancel\n' "${BOLD} q${RESET}"
+        printf '\n'
+        printf '  Select (numbers separated by spaces, or '\''a'\'' for all): '
     } >&2
 
     local input

@@ -1,0 +1,15 @@
+include:
+  - ../base.yml
+
+services:
+  win2022:
+    <<: *common
+    container_name: win2022
+    environment:
+      VERSION: "2022"
+    ports:
+      - 8022:8006
+      - 3322:3389/tcp
+      - 3322:3389/udp
+    volumes:
+      - ../../data/win2022:/storage

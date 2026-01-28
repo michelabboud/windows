@@ -1,0 +1,15 @@
+include:
+  - ../base.yml
+
+services:
+  win2016:
+    <<: *common
+    container_name: win2016
+    environment:
+      VERSION: "2016"
+    ports:
+      - 8016:8006
+      - 3316:3389/tcp
+      - 3316:3389/udp
+    volumes:
+      - ../../data/win2016:/storage

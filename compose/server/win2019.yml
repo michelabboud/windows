@@ -1,0 +1,15 @@
+include:
+  - ../base.yml
+
+services:
+  win2019:
+    <<: *common
+    container_name: win2019
+    environment:
+      VERSION: "2019"
+    ports:
+      - 8019:8006
+      - 3319:3389/tcp
+      - 3319:3389/udp
+    volumes:
+      - ../../data/win2019:/storage

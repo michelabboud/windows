@@ -1,0 +1,39 @@
+include:
+  - ../base.yml
+
+services:
+  win11:
+    <<: *common
+    container_name: win11
+    environment:
+      VERSION: "11"
+    ports:
+      - 8011:8006
+      - 3311:3389/tcp
+      - 3311:3389/udp
+    volumes:
+      - ../../data/win11:/storage
+
+  win11e:
+    <<: *common
+    container_name: win11e
+    environment:
+      VERSION: "11e"
+    ports:
+      - 8012:8006
+      - 3312:3389/tcp
+      - 3312:3389/udp
+    volumes:
+      - ../../data/win11e:/storage
+
+  win11l:
+    <<: *common
+    container_name: win11l
+    environment:
+      VERSION: "11l"
+    ports:
+      - 8013:8006
+      - 3313:3389/tcp
+      - 3313:3389/udp
+    volumes:
+      - ../../data/win11l:/storage

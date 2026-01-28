@@ -1,0 +1,15 @@
+include:
+  - ../base.yml
+
+services:
+  win2012:
+    <<: *common
+    container_name: win2012
+    environment:
+      VERSION: "2012"
+    ports:
+      - 8112:8006
+      - 3212:3389/tcp
+      - 3212:3389/udp
+    volumes:
+      - ../../data/win2012:/storage

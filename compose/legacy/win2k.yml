@@ -1,0 +1,15 @@
+include:
+  - ../base.yml
+
+services:
+  win2k:
+    <<: *common
+    container_name: win2k
+    environment:
+      VERSION: "2k"
+    ports:
+      - 8000:8006
+      - 3300:3389/tcp
+      - 3300:3389/udp
+    volumes:
+      - ../../data/win2k:/storage

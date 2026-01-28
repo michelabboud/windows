@@ -1,0 +1,15 @@
+include:
+  - ../base.yml
+
+services:
+  tiny11:
+    <<: *common
+    container_name: tiny11
+    environment:
+      VERSION: "tiny11"
+    ports:
+      - 8111:8006
+      - 3111:3389/tcp
+      - 3111:3389/udp
+    volumes:
+      - ../../data/tiny11:/storage

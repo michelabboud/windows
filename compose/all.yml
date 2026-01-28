@@ -1,0 +1,5 @@
+include:
+  - desktop.yml
+  - legacy.yml
+  - server.yml
+  - tiny.yml

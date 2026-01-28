@@ -1,0 +1,15 @@
+include:
+  - ../base.yml
+
+services:
+  win2025:
+    <<: *common
+    container_name: win2025
+    environment:
+      VERSION: "2025"
+    ports:
+      - 8025:8006
+      - 3325:3389/tcp
+      - 3325:3389/udp
+    volumes:
+      - ../../data/win2025:/storage

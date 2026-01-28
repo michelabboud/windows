@@ -1,0 +1,39 @@
+include:
+  - ../base.yml
+
+services:
+  win10:
+    <<: *common
+    container_name: win10
+    environment:
+      VERSION: "10"
+    ports:
+      - 8010:8006
+      - 3310:3389/tcp
+      - 3310:3389/udp
+    volumes:
+      - ../../data/win10:/storage
+
+  win10e:
+    <<: *common
+    container_name: win10e
+    environment:
+      VERSION: "10e"
+    ports:
+      - 8014:8006
+      - 3314:3389/tcp
+      - 3314:3389/udp
+    volumes:
+      - ../../data/win10e:/storage
+
+  win10l:
+    <<: *common
+    container_name: win10l
+    environment:
+      VERSION: "10l"
+    ports:
+      - 8015:8006
+      - 3315:3389/tcp
+      - 3315:3389/udp
+    volumes:
+      - ../../data/win10l:/storage

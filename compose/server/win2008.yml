@@ -1,0 +1,15 @@
+include:
+  - ../base.yml
+
+services:
+  win2008:
+    <<: *common
+    container_name: win2008
+    environment:
+      VERSION: "2008"
+    ports:
+      - 8108:8006
+      - 3208:3389/tcp
+      - 3208:3389/udp
+    volumes:
+      - ../../data/win2008:/storage

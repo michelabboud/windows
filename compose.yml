@@ -1,19 +1,25 @@
+# Default compose file - Windows 11 Pro
+# For more versions, see compose/ folder
+
+x-common: &common
+  image: dockurr/windows
+  devices:
+    - /dev/kvm
+    - /dev/net/tun
+  cap_add:
+    - NET_ADMIN
+  restart: unless-stopped
+  stop_grace_period: 2m
+
 services:
   windows:
-    image: dockurr/windows
+    <<: *common
     container_name: windows
     environment:
       VERSION: "11"
-    devices:
-      - /dev/kvm
-      - /dev/net/tun
-    cap_add:
-      - NET_ADMIN
     ports:
       - 8006:8006
       - 3389:3389/tcp
       - 3389:3389/udp
     volumes:
-      - ./windows:/storage
-    restart: always
-    stop_grace_period: 2m
+      - ./data/win11:/storage

@@ -1,0 +1,4 @@
+include:
+  - legacy/vista.yml
+  - legacy/winxp.yml
+  - legacy/win2k.yml

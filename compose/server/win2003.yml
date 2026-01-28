@@ -1,0 +1,15 @@
+include:
+  - ../base.yml
+
+services:
+  win2003:
+    <<: *common
+    container_name: win2003
+    environment:
+      VERSION: "2003"
+    ports:
+      - 8003:8006
+      - 3303:3389/tcp
+      - 3303:3389/udp
+    volumes:
+      - ../../data/win2003:/storage

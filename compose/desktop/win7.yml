@@ -1,0 +1,27 @@
+include:
+  - ../base.yml
+
+services:
+  win7:
+    <<: *common
+    container_name: win7
+    environment:
+      VERSION: "7u"
+    ports:
+      - 8007:8006
+      - 3307:3389/tcp
+      - 3307:3389/udp
+    volumes:
+      - ../../data/win7:/storage
+
+  win7e:
+    <<: *common
+    container_name: win7e
+    environment:
+      VERSION: "7e"
+    ports:
+      - 8071:8006
+      - 3371:3389/tcp
+      - 3371:3389/udp
+    volumes:
+      - ../../data/win7e:/storage

@@ -1,0 +1,27 @@
+include:
+  - ../base.yml
+
+services:
+  win81:
+    <<: *common
+    container_name: win81
+    environment:
+      VERSION: "8"
+    ports:
+      - 8008:8006
+      - 3308:3389/tcp
+      - 3308:3389/udp
+    volumes:
+      - ../../data/win81:/storage
+
+  win81e:
+    <<: *common
+    container_name: win81e
+    environment:
+      VERSION: "8e"
+    ports:
+      - 8081:8006
+      - 3381:3389/tcp
+      - 3381:3389/udp
+    volumes:
+      - ../../data/win81e:/storage

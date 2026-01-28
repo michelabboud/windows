@@ -1,0 +1,15 @@
+include:
+  - ../base.yml
+
+services:
+  tiny10:
+    <<: *common
+    container_name: tiny10
+    environment:
+      VERSION: "tiny10"
+    ports:
+      - 8110:8006
+      - 3110:3389/tcp
+      - 3110:3389/udp
+    volumes:
+      - ../../data/tiny10:/storage

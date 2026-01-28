@@ -1,0 +1,15 @@
+include:
+  - ../base.yml
+
+services:
+  vista:
+    <<: *common
+    container_name: vista
+    environment:
+      VERSION: "vu"
+    ports:
+      - 8006:8006
+      - 3306:3389/tcp
+      - 3306:3389/udp
+    volumes:
+      - ../../data/vista:/storage

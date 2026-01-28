@@ -321,24 +321,55 @@ compose_cmd() {
     fi
 }
 
+# Cache for container statuses (populated by refresh_status_cache)
+declare -A _STATUS_CACHE=()
+_STATUS_CACHE_VALID=false
+
+# Refresh the status cache with a single docker call
+refresh_status_cache() {
+    _STATUS_CACHE=()
+    local line
+    while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+            local name state
+            name="${line%%:*}"
+            state="${line#*:}"
+            _STATUS_CACHE["$name"]="$state"
+        fi
+    done < <(docker ps -a --format '{{.Names}}:{{.State}}' 2>/dev/null)
+    _STATUS_CACHE_VALID=true
+}
+
 # Check if a container is running
 is_running() {
     local version="$1"
-    docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${version}$"
+    if [[ "$_STATUS_CACHE_VALID" == "true" ]]; then
+        [[ "${_STATUS_CACHE[$version]:-}" == "running" ]]
+    else
+        docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${version}$"
+    fi
 }
 
 # Check if a container exists (running or stopped)
 container_exists() {
     local version="$1"
-    docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^${version}$"
+    if [[ "$_STATUS_CACHE_VALID" == "true" ]]; then
+        [[ -n "${_STATUS_CACHE[$version]:-}" ]]
+    else
+        docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^${version}$"
+    fi
 }
 
 # Get container status
 get_status() {
     local version="$1"
-    local status
-    status=$(docker ps -a --filter "name=^${version}$" --format '{{.State}}' 2>/dev/null)
-    echo "${status:-not created}"
+    if [[ "$_STATUS_CACHE_VALID" == "true" ]]; then
+        echo "${_STATUS_CACHE[$version]:-not created}"
+    else
+        local status
+        status=$(docker ps -a --filter "name=^${version}$" --format '{{.State}}' 2>/dev/null)
+        echo "${status:-not created}"
+    fi
 }
 
 # Get compose file path for version
@@ -389,21 +420,23 @@ get_versions_by_category() {
     echo "${versions[*]}"
 }
 
-# Show category menu
+# Show category menu (prompts to stderr, result to stdout)
 select_category() {
-    header "Select Category"
-    echo ""
-    echo "  ${BOLD}1${RESET}) Desktop (Win 11, 10, 8.1, 7)"
-    echo "  ${BOLD}2${RESET}) Legacy (Vista, XP, 2000)"
-    echo "  ${BOLD}3${RESET}) Server (2025, 2022, 2019, 2016, 2012, 2008, 2003)"
-    echo "  ${BOLD}4${RESET}) Tiny (Tiny11, Tiny10)"
-    echo "  ${BOLD}5${RESET}) All versions"
-    echo "  ${BOLD}6${RESET}) Select individual versions"
-    echo ""
-    echo -n "  Select [1-6]: "
+    {
+        header "Select Category"
+        echo ""
+        echo "  ${BOLD}1${RESET}) Desktop (Win 11, 10, 8.1, 7)"
+        echo "  ${BOLD}2${RESET}) Legacy (Vista, XP, 2000)"
+        echo "  ${BOLD}3${RESET}) Server (2025, 2022, 2019, 2016, 2012, 2008, 2003)"
+        echo "  ${BOLD}4${RESET}) Tiny (Tiny11, Tiny10)"
+        echo "  ${BOLD}5${RESET}) All versions"
+        echo "  ${BOLD}6${RESET}) Select individual versions"
+        echo ""
+        echo -n "  Select [1-6]: "
+    } >&2
 
     local choice
-    read -r choice
+    read -r choice </dev/tty
 
     case "$choice" in
         1) echo "desktop" ;;
@@ -416,7 +449,7 @@ select_category() {
     esac
 }
 
-# Show version selection menu
+# Show version selection menu (prompts to stderr, result to stdout)
 select_versions() {
     local category="$1"
     local versions=()
@@ -430,32 +463,38 @@ select_versions() {
     fi
 
     if [[ ${#versions[@]} -eq 0 ]]; then
-        die "No versions found for category: $category"
+        error "No versions found for category: $category"
+        return 1
     fi
 
-    header "Select Version(s)"
-    echo ""
+    # Fetch all container statuses in one call
+    refresh_status_cache
 
-    local i=1
-    for v in "${versions[@]}"; do
-        local status=""
-        if is_running "$v"; then
-            status="${GREEN}[running]${RESET}"
-        elif container_exists "$v"; then
-            status="${YELLOW}[stopped]${RESET}"
-        fi
-        printf "  ${BOLD}%2d${RESET}) %-10s %-28s %s\n" "$i" "$v" "${VERSION_DISPLAY_NAMES[$v]}" "$status"
-        ((i++))
-    done
+    {
+        header "Select Version(s)"
+        echo ""
 
-    echo ""
-    echo "  ${BOLD} a${RESET}) Select all"
-    echo "  ${BOLD} q${RESET}) Cancel"
-    echo ""
-    echo -n "  Select (numbers separated by spaces, or 'a' for all): "
+        local i=1
+        for v in "${versions[@]}"; do
+            local status=""
+            if is_running "$v"; then
+                status="${GREEN}[running]${RESET}"
+            elif container_exists "$v"; then
+                status="${YELLOW}[stopped]${RESET}"
+            fi
+            printf "  ${BOLD}%2d${RESET}) %-10s %-28s %s\n" "$i" "$v" "${VERSION_DISPLAY_NAMES[$v]}" "$status"
+            ((i++))
+        done
+
+        echo ""
+        echo "  ${BOLD} a${RESET}) Select all"
+        echo "  ${BOLD} q${RESET}) Cancel"
+        echo ""
+        echo -n "  Select (numbers separated by spaces, or 'a' for all): "
+    } >&2
 
     local input
-    read -r input
+    read -r input </dev/tty
 
     if [[ "$input" == "q" ]] || [[ -z "$input" ]]; then
         return 1
@@ -486,12 +525,14 @@ interactive_select() {
     category=$(select_category)
 
     if [[ -z "$category" ]]; then
-        die "Invalid selection"
+        error "Invalid selection"
+        return 1
     fi
 
     local selected
     if ! selected=$(select_versions "$category"); then
-        die "No versions selected"
+        error "No versions selected"
+        return 1
     fi
 
     echo "$selected"
@@ -506,7 +547,11 @@ cmd_start() {
 
     # Interactive selection if no versions specified
     if [[ ${#versions[@]} -eq 0 ]]; then
-        IFS=' ' read -ra versions <<< "$(interactive_select)"
+        local selected
+        if ! selected=$(interactive_select); then
+            exit 1
+        fi
+        IFS=' ' read -ra versions <<< "$selected"
     fi
 
     # Validate all versions first
@@ -557,7 +602,11 @@ cmd_stop() {
 
     # Interactive selection if no versions specified
     if [[ ${#versions[@]} -eq 0 ]]; then
-        IFS=' ' read -ra versions <<< "$(interactive_select)"
+        local selected
+        if ! selected=$(interactive_select); then
+            exit 1
+        fi
+        IFS=' ' read -ra versions <<< "$selected"
     fi
 
     # Validate all versions first
@@ -608,7 +657,11 @@ cmd_restart() {
 
     # Interactive selection if no versions specified
     if [[ ${#versions[@]} -eq 0 ]]; then
-        IFS=' ' read -ra versions <<< "$(interactive_select)"
+        local selected
+        if ! selected=$(interactive_select); then
+            exit 1
+        fi
+        IFS=' ' read -ra versions <<< "$selected"
     fi
 
     # Validate all versions first
@@ -744,7 +797,11 @@ cmd_rebuild() {
 
     # Interactive selection if no versions specified
     if [[ ${#versions[@]} -eq 0 ]]; then
-        IFS=' ' read -ra versions <<< "$(interactive_select)"
+        local selected
+        if ! selected=$(interactive_select); then
+            exit 1
+        fi
+        IFS=' ' read -ra versions <<< "$selected"
     fi
 
     # Validate all versions first

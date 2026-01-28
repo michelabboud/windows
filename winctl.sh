@@ -709,6 +709,13 @@ cmd_start() {
             check_disk "$LEGACY_DISK_GB" || true
         fi
 
+        # Ensure data directory exists
+        local data_dir="$SCRIPT_DIR/data/$v"
+        if [[ ! -d "$data_dir" ]]; then
+            info "Creating data directory: data/$v"
+            mkdir -p "$data_dir"
+        fi
+
         if is_running "$v"; then
             info "$v is already running"
         else
@@ -972,6 +979,13 @@ cmd_rebuild() {
 
     for v in "${versions[@]}"; do
         header "Rebuilding $v"
+
+        # Ensure data directory exists
+        local data_dir="$SCRIPT_DIR/data/$v"
+        if [[ ! -d "$data_dir" ]]; then
+            info "Creating data directory: data/$v"
+            mkdir -p "$data_dir"
+        fi
 
         info "Stopping and removing $v..."
         run_compose "$v" down "$v" 2>/dev/null || true

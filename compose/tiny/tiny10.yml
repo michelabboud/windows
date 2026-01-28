@@ -1,10 +1,11 @@
 include:
-  - ../base.yml
+  - ../base-legacy.yml
 
 services:
   tiny10:
-    <<: *common
+    <<: *legacy
     container_name: tiny10
+    env_file: ../../.env
     environment:
       VERSION: "tiny10"
     ports:

@@ -1,10 +1,11 @@
 include:
-  - ../base.yml
+  - ../base-legacy.yml
 
 services:
   winxp:
-    <<: *common
+    <<: *legacy
     container_name: winxp
+    env_file: ../../.env
     environment:
       VERSION: "xp"
     ports:

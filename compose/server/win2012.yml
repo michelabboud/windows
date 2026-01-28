@@ -1,10 +1,11 @@
 include:
-  - ../base.yml
+  - ../base-legacy.yml
 
 services:
   win2012:
-    <<: *common
+    <<: *legacy
     container_name: win2012
+    env_file: ../../.env
     environment:
       VERSION: "2012"
     ports:

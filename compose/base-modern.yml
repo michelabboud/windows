@@ -1,0 +1,23 @@
+x-modern: &modern
+  image: dockurr/windows
+  devices:
+    - /dev/kvm
+    - /dev/net/tun
+  cap_add:
+    - NET_ADMIN
+  restart: unless-stopped
+  stop_grace_period: 2m
+  environment:
+    RAM_SIZE: ${MODERN_RAM_SIZE:-8G}
+    CPU_CORES: ${MODERN_CPU_CORES:-4}
+    DISK_SIZE: ${MODERN_DISK_SIZE:-128G}
+    USERNAME: ${USERNAME:-Docker}
+    PASSWORD: ${PASSWORD:-admin}
+    LANGUAGE: ${LANGUAGE:-en}
+    REGION: ${REGION:-en-US}
+    KEYBOARD: ${KEYBOARD:-en-US}
+    WIDTH: ${WIDTH:-1280}
+    HEIGHT: ${HEIGHT:-720}
+    DHCP: ${DHCP:-N}
+    SAMBA: ${SAMBA:-Y}
+    DEBUG: ${DEBUG:-N}

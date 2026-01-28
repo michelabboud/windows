@@ -1,10 +1,11 @@
 include:
-  - ../base.yml
+  - ../base-modern.yml
 
 services:
   win2016:
-    <<: *common
+    <<: *modern
     container_name: win2016
+    env_file: ../../.env
     environment:
       VERSION: "2016"
     ports:

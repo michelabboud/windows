@@ -1,9 +1,0 @@
-x-common: &common
-  image: dockurr/windows
-  devices:
-    - /dev/kvm
-    - /dev/net/tun
-  cap_add:
-    - NET_ADMIN
-  restart: unless-stopped
-  stop_grace_period: 2m

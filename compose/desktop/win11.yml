@@ -1,10 +1,11 @@
 include:
-  - ../base.yml
+  - ../base-modern.yml
 
 services:
   win11:
-    <<: *common
+    <<: *modern
     container_name: win11
+    env_file: ../../.env
     environment:
       VERSION: "11"
     ports:
@@ -15,8 +16,9 @@ services:
       - ../../data/win11:/storage
 
   win11e:
-    <<: *common
+    <<: *modern
     container_name: win11e
+    env_file: ../../.env
     environment:
       VERSION: "11e"
     ports:
@@ -27,8 +29,9 @@ services:
       - ../../data/win11e:/storage
 
   win11l:
-    <<: *common
+    <<: *modern
     container_name: win11l
+    env_file: ../../.env
     environment:
       VERSION: "11l"
     ports:

@@ -1,25 +1,27 @@
 # Default compose file - Windows 11 Pro
 # For more versions, see compose/ folder
-
-x-common: &common
-  image: dockurr/windows
-  devices:
-    - /dev/kvm
-    - /dev/net/tun
-  cap_add:
-    - NET_ADMIN
-  restart: unless-stopped
-  stop_grace_period: 2m
+# Configure settings in .env file
 
 services:
   windows:
-    <<: *common
+    image: dockurr/windows
     container_name: windows
+    env_file: .env
     environment:
       VERSION: "11"
+      RAM_SIZE: ${MODERN_RAM_SIZE:-8G}
+      CPU_CORES: ${MODERN_CPU_CORES:-4}
+      DISK_SIZE: ${MODERN_DISK_SIZE:-128G}
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
     ports:
       - 8006:8006
       - 3389:3389/tcp
       - 3389:3389/udp
     volumes:
       - ./data/win11:/storage
+    restart: unless-stopped
+    stop_grace_period: 2m

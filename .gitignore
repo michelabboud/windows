@@ -1,3 +1,6 @@
+# Environment file (contains local settings)
+.env
+
 # Ignore data folder contents but keep structure
 data/*
 !data/*/

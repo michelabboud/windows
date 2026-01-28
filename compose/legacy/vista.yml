@@ -1,10 +1,11 @@
 include:
-  - ../base.yml
+  - ../base-legacy.yml
 
 services:
   vista:
-    <<: *common
+    <<: *legacy
     container_name: vista
+    env_file: ../../.env
     environment:
       VERSION: "vu"
     ports:

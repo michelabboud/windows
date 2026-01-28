@@ -1,10 +1,11 @@
 include:
-  - ../base.yml
+  - ../base-legacy.yml
 
 services:
   win7:
-    <<: *common
+    <<: *legacy
     container_name: win7
+    env_file: ../../.env
     environment:
       VERSION: "7u"
     ports:
@@ -15,8 +16,9 @@ services:
       - ../../data/win7:/storage
 
   win7e:
-    <<: *common
+    <<: *legacy
     container_name: win7e
+    env_file: ../../.env
     environment:
       VERSION: "7e"
     ports:

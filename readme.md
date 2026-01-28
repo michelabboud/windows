@@ -70,6 +70,123 @@ kubectl apply -f https://raw.githubusercontent.com/dockur/windows/refs/heads/mas
 
 [![Download WinBoat](https://github.com/dockur/windows/raw/master/.github/winboat.png)](https://winboat.app)
 
+## Multi-Version Setup 🗂️
+
+This repository includes pre-configured compose files for all Windows versions with optimized resource profiles.
+
+### Management Script (winctl.sh)
+
+Use `winctl.sh` for easy container management:
+
+```bash
+# Check prerequisites
+./winctl.sh check
+
+# Start a container (interactive menu if no version specified)
+./winctl.sh start win11
+./winctl.sh start              # Shows interactive menu
+
+# View status of all containers
+./winctl.sh status
+
+# Stop containers (with confirmation)
+./winctl.sh stop win11
+
+# View logs
+./winctl.sh logs win11 -f
+
+# List all available versions
+./winctl.sh list
+./winctl.sh list desktop       # Filter by category
+
+# Real-time monitoring dashboard
+./winctl.sh monitor
+
+# Rebuild container (preserves data)
+./winctl.sh rebuild win11
+
+# Full help
+./winctl.sh help
+```
+
+### Quick Start (Manual)
+
+```bash
+# Copy environment template
+cp .env.example .env
+
+# Run default (Windows 11)
+docker compose up
+
+# Run specific version
+docker compose -f compose/desktop/win11.yml up win11
+docker compose -f compose/legacy/winxp.yml up winxp
+
+# Run all desktop versions
+docker compose -f compose/desktop.yml up
+
+# Run everything
+docker compose -f compose/all.yml up
+```
+
+### Configuration
+
+Edit `.env` to customize resources for all VMs:
+
+```bash
+# Modern systems (Win 10/11, Server 2016+)
+MODERN_RAM_SIZE=8G
+MODERN_CPU_CORES=4
+MODERN_DISK_SIZE=128G
+
+# Legacy systems (Win 7/8, Vista, XP, 2000, Server 2003-2012, Tiny)
+LEGACY_RAM_SIZE=2G
+LEGACY_CPU_CORES=2
+LEGACY_DISK_SIZE=32G
+
+# Common settings
+USERNAME=Docker
+PASSWORD=admin
+LANGUAGE=en
+```
+
+### Folder Structure
+
+```
+compose/
+├── base-modern.yml      # High-resource profile
+├── base-legacy.yml      # Low-resource profile
+├── all.yml              # All versions
+├── desktop.yml          # Desktop versions
+├── legacy.yml           # Vista, XP, 2000
+├── server.yml           # Server versions
+├── tiny.yml             # Tiny versions
+├── desktop/             # Individual desktop configs
+├── legacy/              # Individual legacy configs
+├── server/              # Individual server configs
+└── tiny/                # Individual tiny configs
+
+data/                    # VM storage (per-version folders)
+├── win11/
+├── winxp/
+└── ...
+```
+
+### Port Reference
+
+| Version | Web UI | RDP |
+|---------|--------|-----|
+| win11 | 8011 | 3311 |
+| win10 | 8010 | 3310 |
+| win81 | 8008 | 3308 |
+| win7 | 8007 | 3307 |
+| vista | 8006 | 3306 |
+| winxp | 8005 | 3305 |
+| win2k | 8000 | 3300 |
+| win2025 | 8025 | 3325 |
+| win2022 | 8022 | 3322 |
+| tiny11 | 8111 | 3111 |
+
 ## FAQ 💬
 
 ### How do I use it?

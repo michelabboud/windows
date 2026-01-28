@@ -927,50 +927,48 @@ cmd_check() {
 # ==============================================================================
 
 show_usage() {
-    cat << EOF
-${BOLD}${SCRIPT_NAME}${RESET} v${SCRIPT_VERSION} - Windows Docker Container Management
-
-${BOLD}USAGE${RESET}
-    ${SCRIPT_NAME} <command> [options]
-
-${BOLD}COMMANDS${RESET}
-    ${BOLD}start${RESET} [version...]     Start container(s), interactive if no version
-    ${BOLD}stop${RESET} [version...]      Stop container(s) with 2-min grace period
-    ${BOLD}restart${RESET} [version...]   Restart container(s)
-    ${BOLD}status${RESET} [version...]    Show status of container(s)
-    ${BOLD}logs${RESET} <version> [-f]    View container logs (-f to follow)
-    ${BOLD}shell${RESET} <version>        Open bash shell in container
-    ${BOLD}stats${RESET} [version...]     Show real-time resource usage
-    ${BOLD}build${RESET}                  Build Docker image locally
-    ${BOLD}rebuild${RESET} [version...]   Destroy and recreate container(s)
-    ${BOLD}list${RESET} [category]        List versions (desktop/legacy/server/tiny/all)
-    ${BOLD}inspect${RESET} <version>      Show detailed container info
-    ${BOLD}monitor${RESET} [interval]     Real-time dashboard (default: 5s refresh)
-    ${BOLD}check${RESET}                  Run prerequisites check
-    ${BOLD}help${RESET}                   Show this help message
-
-${BOLD}CATEGORIES${RESET}
-    desktop    Win 11/10/8.1/7 (Pro, Enterprise, LTSC variants)
-    legacy     Vista, XP, 2000
-    server     Server 2025/2022/2019/2016/2012/2008/2003
-    tiny       Tiny11, Tiny10
-
-${BOLD}EXAMPLES${RESET}
-    ${SCRIPT_NAME} start                   # Interactive menu
-    ${SCRIPT_NAME} start win11             # Start Windows 11
-    ${SCRIPT_NAME} start win11 win10       # Start multiple
-    ${SCRIPT_NAME} stop win11              # Stop with confirmation
-    ${SCRIPT_NAME} status                  # Show all containers
-    ${SCRIPT_NAME} logs win11 -f           # Follow logs
-    ${SCRIPT_NAME} list desktop            # List desktop versions
-    ${SCRIPT_NAME} monitor 10              # Dashboard with 10s refresh
-    ${SCRIPT_NAME} rebuild win11           # Recreate container
-
-${BOLD}PORTS${RESET}
-    Each version has unique ports for Web UI and RDP access.
-    Run '${SCRIPT_NAME} list' to see port mappings.
-
-EOF
+    printf '%b\n' "${BOLD}${SCRIPT_NAME}${RESET} v${SCRIPT_VERSION} - Windows Docker Container Management"
+    printf '\n'
+    printf '%b\n' "${BOLD}USAGE${RESET}"
+    printf '    %s <command> [options]\n' "${SCRIPT_NAME}"
+    printf '\n'
+    printf '%b\n' "${BOLD}COMMANDS${RESET}"
+    printf '    %b [version...]     Start container(s), interactive if no version\n' "${BOLD}start${RESET}"
+    printf '    %b [version...]      Stop container(s) with 2-min grace period\n' "${BOLD}stop${RESET}"
+    printf '    %b [version...]   Restart container(s)\n' "${BOLD}restart${RESET}"
+    printf '    %b [version...]    Show status of container(s)\n' "${BOLD}status${RESET}"
+    printf '    %b <version> [-f]    View container logs (-f to follow)\n' "${BOLD}logs${RESET}"
+    printf '    %b <version>        Open bash shell in container\n' "${BOLD}shell${RESET}"
+    printf '    %b [version...]     Show real-time resource usage\n' "${BOLD}stats${RESET}"
+    printf '    %b                  Build Docker image locally\n' "${BOLD}build${RESET}"
+    printf '    %b [version...]   Destroy and recreate container(s)\n' "${BOLD}rebuild${RESET}"
+    printf '    %b [category]        List versions (desktop/legacy/server/tiny/all)\n' "${BOLD}list${RESET}"
+    printf '    %b <version>      Show detailed container info\n' "${BOLD}inspect${RESET}"
+    printf '    %b [interval]     Real-time dashboard (default: 5s refresh)\n' "${BOLD}monitor${RESET}"
+    printf '    %b                  Run prerequisites check\n' "${BOLD}check${RESET}"
+    printf '    %b                   Show this help message\n' "${BOLD}help${RESET}"
+    printf '\n'
+    printf '%b\n' "${BOLD}CATEGORIES${RESET}"
+    printf '    desktop    Win 11/10/8.1/7 (Pro, Enterprise, LTSC variants)\n'
+    printf '    legacy     Vista, XP, 2000\n'
+    printf '    server     Server 2025/2022/2019/2016/2012/2008/2003\n'
+    printf '    tiny       Tiny11, Tiny10\n'
+    printf '\n'
+    printf '%b\n' "${BOLD}EXAMPLES${RESET}"
+    printf '    %s start                   # Interactive menu\n' "${SCRIPT_NAME}"
+    printf '    %s start win11             # Start Windows 11\n' "${SCRIPT_NAME}"
+    printf '    %s start win11 win10       # Start multiple\n' "${SCRIPT_NAME}"
+    printf '    %s stop win11              # Stop with confirmation\n' "${SCRIPT_NAME}"
+    printf '    %s status                  # Show all containers\n' "${SCRIPT_NAME}"
+    printf '    %s logs win11 -f           # Follow logs\n' "${SCRIPT_NAME}"
+    printf '    %s list desktop            # List desktop versions\n' "${SCRIPT_NAME}"
+    printf '    %s monitor 10              # Dashboard with 10s refresh\n' "${SCRIPT_NAME}"
+    printf '    %s rebuild win11           # Recreate container\n' "${SCRIPT_NAME}"
+    printf '\n'
+    printf '%b\n' "${BOLD}PORTS${RESET}"
+    printf '    Each version has unique ports for Web UI and RDP access.\n'
+    printf "    Run '%s list' to see port mappings.\n" "${SCRIPT_NAME}"
+    printf '\n'
 }
 
 # ==============================================================================

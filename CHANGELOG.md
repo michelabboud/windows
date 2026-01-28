@@ -6,12 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - **winctl.sh**: Management script for Windows Docker containers
-  - 12 commands: start, stop, restart, status, logs, shell, stats, build, rebuild, list, inspect, monitor, check
+  - 13 commands: start, stop, restart, status, logs, shell, stats, build, rebuild, list, inspect, monitor, check, refresh
   - Interactive menus for version selection
   - Prerequisites checking (Docker, Compose, KVM, TUN, memory, disk)
   - Color-coded output with professional table formatting
   - Safety confirmations for destructive operations
   - Support for all 22 Windows versions across 4 categories
+  - JSON status cache (`~/.cache/winctl/status.json`) with auto-refresh
 - Multi-version compose structure with organized folders (`compose/`)
 - Environment file configuration (`.env` / `.env.example`)
 - Two resource profiles: modern (8G RAM, 4 CPU) and legacy (2G RAM, 2 CPU)

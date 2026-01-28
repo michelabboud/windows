@@ -16,6 +16,11 @@ readonly SCRIPT_NAME="winctl"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 
+# Cache settings
+readonly CACHE_DIR="${HOME}/.cache/winctl"
+readonly CACHE_FILE="${CACHE_DIR}/status.json"
+readonly CACHE_MAX_AGE=$((7 * 24 * 60 * 60))  # 7 days in seconds
+
 # ==============================================================================
 # COLORS & TERMINAL DETECTION
 # ==============================================================================
@@ -321,12 +326,131 @@ compose_cmd() {
     fi
 }
 
-# Cache for container statuses (populated by refresh_status_cache)
+# ==============================================================================
+# STATUS CACHE (JSON file-based with auto-refresh)
+# ==============================================================================
+
+# In-memory cache (loaded from JSON)
 declare -A _STATUS_CACHE=()
 _STATUS_CACHE_VALID=false
+_STATUS_CACHE_TIMESTAMP=0
 
-# Refresh the status cache with a single docker call
+# Ensure cache directory exists
+ensure_cache_dir() {
+    [[ -d "$CACHE_DIR" ]] || mkdir -p "$CACHE_DIR"
+}
+
+# Get cache file age in seconds (returns large number if file doesn't exist)
+get_cache_age() {
+    if [[ -f "$CACHE_FILE" ]]; then
+        local file_time current_time
+        file_time=$(stat -c %Y "$CACHE_FILE" 2>/dev/null || stat -f %m "$CACHE_FILE" 2>/dev/null || echo 0)
+        current_time=$(date +%s)
+        echo $((current_time - file_time))
+    else
+        echo 999999999
+    fi
+}
+
+# Check if cache needs refresh (age > max age)
+cache_needs_refresh() {
+    local age
+    age=$(get_cache_age)
+    ((age > CACHE_MAX_AGE))
+}
+
+# Write status cache to JSON file
+write_cache_file() {
+    ensure_cache_dir
+    local timestamp
+    timestamp=$(date +%s)
+
+    # Build JSON manually (no jq dependency)
+    {
+        echo "{"
+        echo "  \"timestamp\": $timestamp,"
+        echo "  \"containers\": {"
+        local first=true
+        for name in "${!_STATUS_CACHE[@]}"; do
+            if [[ "$first" == "true" ]]; then
+                first=false
+            else
+                echo ","
+            fi
+            printf '    "%s": "%s"' "$name" "${_STATUS_CACHE[$name]}"
+        done
+        echo ""
+        echo "  }"
+        echo "}"
+    } > "$CACHE_FILE"
+}
+
+# Read status cache from JSON file
+read_cache_file() {
+    if [[ ! -f "$CACHE_FILE" ]]; then
+        return 1
+    fi
+
+    _STATUS_CACHE=()
+    _STATUS_CACHE_TIMESTAMP=0
+
+    # Parse JSON manually (no jq dependency)
+    local in_containers=false
+    while IFS= read -r line; do
+        # Extract timestamp
+        if [[ "$line" =~ \"timestamp\":[[:space:]]*([0-9]+) ]]; then
+            _STATUS_CACHE_TIMESTAMP="${BASH_REMATCH[1]}"
+        fi
+        # Track when we're in containers section
+        if [[ "$line" =~ \"containers\" ]]; then
+            in_containers=true
+            continue
+        fi
+        # Parse container entries
+        if [[ "$in_containers" == "true" && "$line" =~ \"([^\"]+)\":[[:space:]]*\"([^\"]+)\" ]]; then
+            local name="${BASH_REMATCH[1]}"
+            local state="${BASH_REMATCH[2]}"
+            _STATUS_CACHE["$name"]="$state"
+        fi
+    done < "$CACHE_FILE"
+
+    return 0
+}
+
+# Validate cache by spot-checking a running container still exists
+validate_cache() {
+    # If cache shows a container as running, verify it still exists
+    for name in "${!_STATUS_CACHE[@]}"; do
+        if [[ "${_STATUS_CACHE[$name]}" == "running" ]]; then
+            # Quick check if this container exists
+            if ! docker ps -q --filter "name=^${name}$" 2>/dev/null | grep -q .; then
+                return 1  # Cache is stale
+            fi
+            return 0  # Found a valid running container
+        fi
+    done
+    return 0  # No running containers to validate
+}
+
+# Refresh the status cache from Docker and save to file
 refresh_status_cache() {
+    local force="${1:-false}"
+
+    # Try to load from file cache first (unless forced)
+    if [[ "$force" != "true" && "$_STATUS_CACHE_VALID" != "true" ]]; then
+        if read_cache_file; then
+            # Check if cache is still valid (not too old)
+            if ! cache_needs_refresh; then
+                # Validate cache data
+                if validate_cache; then
+                    _STATUS_CACHE_VALID=true
+                    return 0
+                fi
+            fi
+        fi
+    fi
+
+    # Fetch fresh data from Docker
     _STATUS_CACHE=()
     local line
     while IFS= read -r line; do
@@ -338,6 +462,15 @@ refresh_status_cache() {
         fi
     done < <(docker ps -a --format '{{.Names}}:{{.State}}' 2>/dev/null)
     _STATUS_CACHE_VALID=true
+
+    # Save to file
+    write_cache_file
+}
+
+# Force refresh the cache (called after start/stop/restart operations)
+invalidate_cache() {
+    _STATUS_CACHE_VALID=false
+    refresh_status_cache true
 }
 
 # Check if a container is running
@@ -595,6 +728,9 @@ cmd_start() {
         echo -e "    → RDP:        ${CYAN}localhost:${VERSION_PORTS_RDP[$v]}${RESET}"
         echo ""
     done
+
+    # Refresh cache after state changes
+    invalidate_cache
 }
 
 cmd_stop() {
@@ -650,6 +786,9 @@ cmd_stop() {
             error "Failed to stop $v"
         fi
     done
+
+    # Refresh cache after state changes
+    invalidate_cache
 }
 
 cmd_restart() {
@@ -684,6 +823,9 @@ cmd_restart() {
             error "Failed to restart $v"
         fi
     done
+
+    # Refresh cache after state changes
+    invalidate_cache
 }
 
 cmd_status() {
@@ -846,6 +988,9 @@ cmd_rebuild() {
             error "Failed to rebuild $v"
         fi
     done
+
+    # Refresh cache after state changes
+    invalidate_cache
 }
 
 cmd_list() {
@@ -979,6 +1124,38 @@ cmd_check() {
     run_all_checks
 }
 
+cmd_refresh() {
+    header "Refreshing Status Cache"
+
+    info "Fetching container statuses from Docker..."
+    refresh_status_cache true
+
+    local count=${#_STATUS_CACHE[@]}
+    success "Cache refreshed (${count} containers found)"
+
+    # Show cache info
+    local age
+    age=$(get_cache_age)
+    echo ""
+    echo -e "  ${BOLD}Cache Info:${RESET}"
+    echo -e "    → File:     ${CYAN}${CACHE_FILE}${RESET}"
+    echo -e "    → Age:      ${age} seconds"
+    echo -e "    → Max Age:  ${CACHE_MAX_AGE} seconds (7 days)"
+    echo ""
+
+    # Show summary
+    local cnt_running=0 cnt_stopped=0 cnt_other=0
+    for state in "${_STATUS_CACHE[@]}"; do
+        case "$state" in
+            running) ((cnt_running++)) || true ;;
+            exited)  ((cnt_stopped++)) || true ;;
+            *)       ((cnt_other++)) || true ;;
+        esac
+    done
+    echo -e "  ${BOLD}Containers:${RESET} ${GREEN}${cnt_running} running${RESET}, ${RED}${cnt_stopped} stopped${RESET}, ${DIM}${cnt_other} other${RESET}"
+    echo ""
+}
+
 # ==============================================================================
 # HELP
 # ==============================================================================
@@ -1003,6 +1180,7 @@ show_usage() {
     printf '    %b <version>      Show detailed container info\n' "${BOLD}inspect${RESET}"
     printf '    %b [interval]     Real-time dashboard (default: 5s refresh)\n' "${BOLD}monitor${RESET}"
     printf '    %b                  Run prerequisites check\n' "${BOLD}check${RESET}"
+    printf '    %b                Force refresh status cache\n' "${BOLD}refresh${RESET}"
     printf '    %b                   Show this help message\n' "${BOLD}help${RESET}"
     printf '\n'
     printf '%b\n' "${BOLD}CATEGORIES${RESET}"
@@ -1053,6 +1231,7 @@ main() {
         inspect)    cmd_inspect "$@" ;;
         monitor)    cmd_monitor "$@" ;;
         check)      cmd_check "$@" ;;
+        refresh)    cmd_refresh "$@" ;;
         help|--help|-h)
             show_usage
             ;;

@@ -743,6 +743,23 @@ cmd_start() {
 cmd_stop() {
     local versions=("$@")
 
+    # Stop all running containers
+    if [[ ${#versions[@]} -eq 1 && "${versions[0]}" == "all" ]]; then
+        versions=()
+        refresh_status_cache
+        for v in "${ALL_VERSIONS[@]}"; do
+            local status
+            status=$(get_status "$v")
+            if [[ "$status" == "running" ]]; then
+                versions+=("$v")
+            fi
+        done
+        if [[ ${#versions[@]} -eq 0 ]]; then
+            info "No running containers found"
+            return 0
+        fi
+    fi
+
     # Interactive selection if no versions specified
     if [[ ${#versions[@]} -eq 0 ]]; then
         local selected
@@ -1185,7 +1202,7 @@ show_usage() {
     printf '\n'
     printf '%b\n' "${BOLD}COMMANDS${RESET}"
     printf '    %b [version...]     Start container(s), interactive if no version\n' "${BOLD}start${RESET}"
-    printf '    %b [version...]      Stop container(s) with 2-min grace period\n' "${BOLD}stop${RESET}"
+    printf '    %b [version...|all]  Stop container(s) or all running\n' "${BOLD}stop${RESET}"
     printf '    %b [version...]   Restart container(s)\n' "${BOLD}restart${RESET}"
     printf '    %b [version...]    Show status of container(s)\n' "${BOLD}status${RESET}"
     printf '    %b <version> [-f]    View container logs (-f to follow)\n' "${BOLD}logs${RESET}"
@@ -1211,6 +1228,7 @@ show_usage() {
     printf '    %s start win11             # Start Windows 11\n' "${SCRIPT_NAME}"
     printf '    %s start win11 win10       # Start multiple\n' "${SCRIPT_NAME}"
     printf '    %s stop win11              # Stop with confirmation\n' "${SCRIPT_NAME}"
+    printf '    %s stop all                # Stop all running\n' "${SCRIPT_NAME}"
     printf '    %s status                  # Show all containers\n' "${SCRIPT_NAME}"
     printf '    %s logs win11 -f           # Follow logs\n' "${SCRIPT_NAME}"
     printf '    %s list desktop            # List desktop versions\n' "${SCRIPT_NAME}"

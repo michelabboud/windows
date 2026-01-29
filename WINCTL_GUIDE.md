@@ -173,6 +173,9 @@ Stop containers with a 2-minute grace period for clean shutdown.
 # Stop multiple versions
 ./winctl.sh stop win11 win10
 
+# Stop all running containers
+./winctl.sh stop all
+
 # Interactive menu
 ./winctl.sh stop
 ```

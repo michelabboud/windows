@@ -91,6 +91,7 @@ Use `winctl.sh` for easy container management:
 
 # Stop containers (with confirmation)
 ./winctl.sh stop win11
+./winctl.sh stop all               # Stop all running
 
 # View logs
 ./winctl.sh logs win11 -f

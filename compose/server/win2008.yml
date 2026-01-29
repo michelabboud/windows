@@ -1,3 +1,4 @@
+---
 services:
   win2008:
     image: ${WINDOWS_IMAGE:-dockurr/windows}

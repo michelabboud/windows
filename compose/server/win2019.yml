@@ -1,3 +1,4 @@
+---
 services:
   win2019:
     image: ${WINDOWS_IMAGE:-dockurr/windows}

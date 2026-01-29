@@ -1,3 +1,4 @@
+---
 include:
   - desktop/win11.yml
   - desktop/win10.yml

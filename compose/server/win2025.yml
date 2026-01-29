@@ -1,3 +1,4 @@
+---
 services:
   win2025:
     image: ${WINDOWS_IMAGE:-dockurr/windows}

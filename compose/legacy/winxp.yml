@@ -1,3 +1,4 @@
+---
 services:
   winxp:
     image: ${WINDOWS_IMAGE:-dockurr/windows}

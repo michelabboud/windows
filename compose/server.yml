@@ -1,3 +1,4 @@
+---
 include:
   - server/win2025.yml
   - server/win2022.yml

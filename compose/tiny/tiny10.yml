@@ -1,3 +1,4 @@
+---
 services:
   tiny10:
     image: ${WINDOWS_IMAGE:-dockurr/windows}

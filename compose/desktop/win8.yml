@@ -1,3 +1,4 @@
+---
 services:
   win81:
     image: ${WINDOWS_IMAGE:-dockurr/windows}

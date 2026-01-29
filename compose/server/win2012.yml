@@ -1,3 +1,4 @@
+---
 services:
   win2012:
     image: ${WINDOWS_IMAGE:-dockurr/windows}

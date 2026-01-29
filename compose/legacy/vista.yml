@@ -1,3 +1,4 @@
+---
 services:
   vista:
     image: ${WINDOWS_IMAGE:-dockurr/windows}

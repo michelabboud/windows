@@ -1,3 +1,4 @@
+---
 services:
   win11:
     image: ${WINDOWS_IMAGE:-dockurr/windows}

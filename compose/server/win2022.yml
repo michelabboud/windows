@@ -1,3 +1,4 @@
+---
 services:
   win2022:
     image: ${WINDOWS_IMAGE:-dockurr/windows}

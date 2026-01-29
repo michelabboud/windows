@@ -84,6 +84,47 @@ ShellCheck exclusions (from CI): SC1091, SC2001, SC2002, SC2034, SC2064, SC2153,
 | CPU_CORES | "2" | CPU cores |
 | MANUAL | "" | Set to "Y" for manual installation |
 
+## Git Remotes & Pull Requests
+
+### Remotes
+
+| Remote | Repository | Purpose |
+|--------|-----------|---------|
+| `origin` | `michelabboud/windows` | Personal repo, push directly to `master` |
+| `fork` | `michelabboud/windows-1` | Fork of `dockur/windows`, used for PRs to upstream |
+
+### Creating a PR to upstream
+
+1. Push changes to a feature branch on the fork:
+   ```bash
+   git push fork master:<branch-name>
+   ```
+2. Create the PR:
+   ```bash
+   gh pr create --repo dockur/windows --head michelabboud:<branch-name> --base master --title "..." --body "..."
+   ```
+3. Create a matching issue:
+   ```bash
+   gh issue create --repo dockur/windows --title "..." --body "..."
+   ```
+
+### Updating an existing PR
+
+Push new commits to the same branch on the fork:
+```bash
+git push fork master:<branch-name>
+```
+The PR updates automatically. Update the PR description if needed:
+```bash
+gh pr edit <pr-number> --repo dockur/windows --body "..."
+```
+
+### Updating the GitHub release
+
+```bash
+gh release edit <tag> --notes "..."
+```
+
 ## Adding New Windows Versions
 
 1. Add version aliases in `src/define.sh` `parseVersion()` function

@@ -838,7 +838,7 @@ cmd_stop() {
     local confirm
     read -r confirm
     if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-        info "Cancelled"
+        info "Canceled"
         return 0
     fi
 
@@ -1035,7 +1035,7 @@ cmd_rebuild() {
     local confirm
     read -r confirm
     if [[ "$confirm" != "yes" ]]; then
-        info "Cancelled"
+        info "Canceled"
         return 0
     fi
 

@@ -1097,6 +1097,9 @@ cmd_monitor() {
     echo ""
 
     while true; do
+        # Refresh cache for accurate status
+        invalidate_cache
+
         clear
         echo -e "${BOLD}${CYAN}Windows Container Monitor${RESET} - $(date '+%Y-%m-%d %H:%M:%S')"
         echo -e "${DIM}$(printf '─%.0s' {1..70})${RESET}"
@@ -1111,11 +1114,11 @@ cmd_monitor() {
             local status
             status=$(get_status "$v")
             if [[ "$status" != "not created" ]]; then
-                ((total_count++))
+                ((++total_count))
                 if [[ "$status" == "running" ]]; then
-                    ((running_count++))
+                    ((++running_count))
                 else
-                    ((stopped_count++))
+                    ((++stopped_count))
                 fi
                 table_row "$v" "${VERSION_DISPLAY_NAMES[$v]}" "$status" "${VERSION_PORTS_WEB[$v]}" "${VERSION_PORTS_RDP[$v]}"
             fi

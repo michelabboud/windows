@@ -26,16 +26,16 @@ readonly CACHE_MAX_AGE=$((7 * 24 * 60 * 60))  # 7 days in seconds
 # ==============================================================================
 
 if [[ -t 1 ]] && [[ "${TERM:-}" != "dumb" ]]; then
-    readonly RED='\033[0;31m'
-    readonly GREEN='\033[0;32m'
-    readonly YELLOW='\033[0;33m'
-    readonly BLUE='\033[0;34m'
-    readonly MAGENTA='\033[0;35m'
-    readonly CYAN='\033[0;36m'
-    readonly WHITE='\033[0;37m'
-    readonly BOLD='\033[1m'
-    readonly DIM='\033[2m'
-    readonly RESET='\033[0m'
+    readonly RED=$'\033[0;31m'
+    readonly GREEN=$'\033[0;32m'
+    readonly YELLOW=$'\033[0;33m'
+    readonly BLUE=$'\033[0;34m'
+    readonly MAGENTA=$'\033[0;35m'
+    readonly CYAN=$'\033[0;36m'
+    readonly WHITE=$'\033[0;37m'
+    readonly BOLD=$'\033[1m'
+    readonly DIM=$'\033[2m'
+    readonly RESET=$'\033[0m'
 else
     readonly RED=''
     readonly GREEN=''
@@ -147,19 +147,19 @@ readonly LEGACY_DISK_GB=32
 # ==============================================================================
 
 info() {
-    echo -e "${BLUE}[INFO]${RESET} $*"
+    printf '%s\n' "${BLUE}[INFO]${RESET} $*"
 }
 
 success() {
-    echo -e "${GREEN}[OK]${RESET} $*"
+    printf '%s\n' "${GREEN}[OK]${RESET} $*"
 }
 
 warn() {
-    echo -e "${YELLOW}[WARN]${RESET} $*"
+    printf '%s\n' "${YELLOW}[WARN]${RESET} $*"
 }
 
 error() {
-    echo -e "${RED}[ERROR]${RESET} $*" >&2
+    printf '%s\n' "${RED}[ERROR]${RESET} $*" >&2
 }
 
 die() {
@@ -168,9 +168,9 @@ die() {
 }
 
 header() {
-    echo ""
-    echo -e "${BOLD}${CYAN}$*${RESET}"
-    echo -e "${DIM}$(printf '─%.0s' {1..60})${RESET}"
+    printf '\n'
+    printf '%s\n' "${BOLD}${CYAN}$*${RESET}"
+    printf '%s\n' "${DIM}$(printf '─%.0s' {1..60})${RESET}"
 }
 
 # Print a formatted table row
@@ -188,15 +188,15 @@ table_row() {
         *) status_color="${YELLOW}" ;;
     esac
 
-    printf "  ${BOLD}%-12s${RESET} %-26s ${status_color}%-10s${RESET} %-8s %-8s\n" \
-        "$version" "$name" "$status" "$web" "$rdp"
+    printf "  %s%-12s%s %-26s %s%-10s%s %-8s %-8s\n" \
+        "${BOLD}" "$version" "${RESET}" "$name" "$status_color" "$status" "${RESET}" "$web" "$rdp"
 }
 
 table_header() {
-    echo ""
-    printf "  ${BOLD}${DIM}%-12s %-26s %-10s %-8s %-8s${RESET}\n" \
-        "VERSION" "NAME" "STATUS" "WEB" "RDP"
-    echo -e "  ${DIM}$(printf '─%.0s' {1..66})${RESET}"
+    printf '\n'
+    printf "  %s%-12s %-26s %-10s %-8s %-8s%s\n" \
+        "${BOLD}${DIM}" "VERSION" "NAME" "STATUS" "WEB" "RDP" "${RESET}"
+    printf '%s\n' "  ${DIM}$(printf '─%.0s' {1..66})${RESET}"
 }
 
 # ==============================================================================
@@ -206,13 +206,13 @@ table_header() {
 check_docker() {
     if ! command -v docker &>/dev/null; then
         error "Docker is not installed"
-        echo "  Install Docker: https://docs.docker.com/get-docker/"
+        printf '%s\n' "  Install Docker: https://docs.docker.com/get-docker/"
         return 1
     fi
 
     if ! docker info &>/dev/null; then
         error "Docker daemon is not running"
-        echo "  Start Docker: sudo systemctl start docker"
+        printf '%s\n' "  Start Docker: sudo systemctl start docker"
         return 1
     fi
 
@@ -229,7 +229,7 @@ check_compose() {
         return 0
     else
         error "Docker Compose is not installed"
-        echo "  Install: https://docs.docker.com/compose/install/"
+        printf '%s\n' "  Install: https://docs.docker.com/compose/install/"
         return 1
     fi
 }
@@ -237,13 +237,13 @@ check_compose() {
 check_kvm() {
     if [[ ! -e /dev/kvm ]]; then
         error "KVM device not found (/dev/kvm)"
-        echo "  Enable virtualization in BIOS or check nested virtualization"
+        printf '%s\n' "  Enable virtualization in BIOS or check nested virtualization"
         return 1
     fi
 
     if [[ ! -r /dev/kvm ]] || [[ ! -w /dev/kvm ]]; then
         error "KVM device not accessible"
-        echo "  Fix: sudo usermod -aG kvm \$USER && newgrp kvm"
+        printf '%s\n' "  Fix: sudo usermod -aG kvm \$USER && newgrp kvm"
         return 1
     fi
 
@@ -303,7 +303,7 @@ run_all_checks() {
     check_memory || true  # Warning only
     check_disk || true  # Warning only
 
-    echo ""
+    printf '\n'
     if ((failed > 0)); then
         error "Some critical checks failed. Please fix the issues above."
         return 1
@@ -729,11 +729,11 @@ cmd_start() {
         fi
 
         # Show connection info
-        echo ""
-        echo -e "  ${BOLD}Connection Details:${RESET}"
-        echo -e "    → Web Viewer: ${CYAN}http://localhost:${VERSION_PORTS_WEB[$v]}${RESET}"
-        echo -e "    → RDP:        ${CYAN}localhost:${VERSION_PORTS_RDP[$v]}${RESET}"
-        echo ""
+        printf '\n'
+        printf '%s\n' "  ${BOLD}Connection Details:${RESET}"
+        printf '%s\n' "    → Web Viewer: ${CYAN}http://localhost:${VERSION_PORTS_WEB[$v]}${RESET}"
+        printf '%s\n' "    → RDP:        ${CYAN}localhost:${VERSION_PORTS_RDP[$v]}${RESET}"
+        printf '\n'
     done
 
     # Refresh cache after state changes
@@ -776,8 +776,8 @@ cmd_stop() {
 
     # Show confirmation
     header "Stopping Containers"
-    echo ""
-    echo "  The following containers will be stopped:"
+    printf '\n'
+    printf '%s\n' "  The following containers will be stopped:"
     for v in "${versions[@]}"; do
         local status
         if is_running "$v"; then
@@ -785,10 +785,10 @@ cmd_stop() {
         else
             status="${YELLOW}not running${RESET}"
         fi
-        echo -e "    • $v (${VERSION_DISPLAY_NAMES[$v]}) - $status"
+        printf '%s\n' "    • $v (${VERSION_DISPLAY_NAMES[$v]}) - $status"
     done
-    echo ""
-    echo -n "  Continue? [y/N]: "
+    printf '\n'
+    printf '%s' "  Continue? [y/N]: "
 
     local confirm
     read -r confirm
@@ -838,11 +838,11 @@ cmd_restart() {
         info "Restarting $v..."
         if run_compose "$v" restart "$v"; then
             success "$v restarted"
-            echo ""
-            echo -e "  ${BOLD}Connection Details:${RESET}"
-            echo -e "    → Web Viewer: ${CYAN}http://localhost:${VERSION_PORTS_WEB[$v]}${RESET}"
-            echo -e "    → RDP:        ${CYAN}localhost:${VERSION_PORTS_RDP[$v]}${RESET}"
-            echo ""
+            printf '\n'
+            printf '%s\n' "  ${BOLD}Connection Details:${RESET}"
+            printf '%s\n' "    → Web Viewer: ${CYAN}http://localhost:${VERSION_PORTS_WEB[$v]}${RESET}"
+            printf '%s\n' "    → RDP:        ${CYAN}localhost:${VERSION_PORTS_RDP[$v]}${RESET}"
+            printf '\n'
         else
             error "Failed to restart $v"
         fi
@@ -871,7 +871,7 @@ cmd_status() {
         status=$(get_status "$v")
         table_row "$v" "${VERSION_DISPLAY_NAMES[$v]}" "$status" "${VERSION_PORTS_WEB[$v]}" "${VERSION_PORTS_RDP[$v]}"
     done
-    echo ""
+    printf '\n'
 }
 
 cmd_logs() {
@@ -977,15 +977,15 @@ cmd_rebuild() {
 
     # Show warning
     header "⚠️  Rebuild Containers"
-    echo ""
-    echo -e "  ${RED}${BOLD}WARNING: This will destroy and recreate the following containers.${RESET}"
-    echo -e "  ${RED}Data in /storage volumes will be preserved.${RESET}"
-    echo ""
+    printf '\n'
+    printf '%s\n' "  ${RED}${BOLD}WARNING: This will destroy and recreate the following containers.${RESET}"
+    printf '%s\n' "  ${RED}Data in /storage volumes will be preserved.${RESET}"
+    printf '\n'
     for v in "${versions[@]}"; do
-        echo "    • $v (${VERSION_DISPLAY_NAMES[$v]})"
+        printf '%s\n' "    • $v (${VERSION_DISPLAY_NAMES[$v]})"
     done
-    echo ""
-    echo -n "  Type 'yes' to confirm: "
+    printf '\n'
+    printf '%s' "  Type 'yes' to confirm: "
 
     local confirm
     read -r confirm
@@ -1010,11 +1010,11 @@ cmd_rebuild() {
         info "Recreating $v..."
         if run_compose "$v" up -d "$v"; then
             success "$v rebuilt successfully"
-            echo ""
-            echo -e "  ${BOLD}Connection Details:${RESET}"
-            echo -e "    → Web Viewer: ${CYAN}http://localhost:${VERSION_PORTS_WEB[$v]}${RESET}"
-            echo -e "    → RDP:        ${CYAN}localhost:${VERSION_PORTS_RDP[$v]}${RESET}"
-            echo ""
+            printf '\n'
+            printf '%s\n' "  ${BOLD}Connection Details:${RESET}"
+            printf '%s\n' "    → Web Viewer: ${CYAN}http://localhost:${VERSION_PORTS_WEB[$v]}${RESET}"
+            printf '%s\n' "    → RDP:        ${CYAN}localhost:${VERSION_PORTS_RDP[$v]}${RESET}"
+            printf '\n'
         else
             error "Failed to rebuild $v"
         fi
@@ -1042,11 +1042,11 @@ cmd_list() {
     esac
 
     for cat in "${categories[@]}"; do
-        echo ""
+        printf '\n'
         local cat_upper
         cat_upper=$(echo "$cat" | tr '[:lower:]' '[:upper:]')
-        echo -e "  ${BOLD}${cat_upper}${RESET}"
-        echo -e "  ${DIM}$(printf '─%.0s' {1..50})${RESET}"
+        printf '%s\n' "  ${BOLD}${cat_upper}${RESET}"
+        printf '%s\n' "  ${DIM}$(printf '─%.0s' {1..50})${RESET}"
 
         for v in "${ALL_VERSIONS[@]}"; do
             if [[ "${VERSION_CATEGORIES[$v]}" == "$cat" ]]; then
@@ -1066,7 +1066,7 @@ cmd_list() {
             fi
         done
     done
-    echo ""
+    printf '\n'
 }
 
 cmd_inspect() {
@@ -1079,19 +1079,19 @@ cmd_inspect() {
     validate_version "$version" || exit 1
 
     header "Container Details: $version"
-    echo ""
-    echo -e "  ${BOLD}Version:${RESET}      $version"
-    echo -e "  ${BOLD}Name:${RESET}         ${VERSION_DISPLAY_NAMES[$version]}"
-    echo -e "  ${BOLD}Category:${RESET}     ${VERSION_CATEGORIES[$version]}"
-    echo -e "  ${BOLD}Status:${RESET}       $(get_status "$version")"
-    echo -e "  ${BOLD}Web Port:${RESET}     ${VERSION_PORTS_WEB[$version]}"
-    echo -e "  ${BOLD}RDP Port:${RESET}     ${VERSION_PORTS_RDP[$version]}"
-    echo -e "  ${BOLD}Resources:${RESET}    ${VERSION_RESOURCE_TYPE[$version]}"
-    echo -e "  ${BOLD}Compose:${RESET}      ${VERSION_COMPOSE_FILES[$version]}"
-    echo ""
+    printf '\n'
+    printf '%s\n' "  ${BOLD}Version:${RESET}      $version"
+    printf '%s\n' "  ${BOLD}Name:${RESET}         ${VERSION_DISPLAY_NAMES[$version]}"
+    printf '%s\n' "  ${BOLD}Category:${RESET}     ${VERSION_CATEGORIES[$version]}"
+    printf '%s\n' "  ${BOLD}Status:${RESET}       $(get_status "$version")"
+    printf '%s\n' "  ${BOLD}Web Port:${RESET}     ${VERSION_PORTS_WEB[$version]}"
+    printf '%s\n' "  ${BOLD}RDP Port:${RESET}     ${VERSION_PORTS_RDP[$version]}"
+    printf '%s\n' "  ${BOLD}Resources:${RESET}    ${VERSION_RESOURCE_TYPE[$version]}"
+    printf '%s\n' "  ${BOLD}Compose:${RESET}      ${VERSION_COMPOSE_FILES[$version]}"
+    printf '\n'
 
     if container_exists "$version"; then
-        echo -e "  ${BOLD}Docker Info:${RESET}"
+        printf '%s\n' "  ${BOLD}Docker Info:${RESET}"
         docker inspect "$version" --format '
     Image:       {{.Config.Image}}
     Created:     {{.Created}}
@@ -1099,7 +1099,7 @@ cmd_inspect() {
     Mounts:      {{range .Mounts}}{{.Source}} -> {{.Destination}}
                  {{end}}' 2>/dev/null || true
     fi
-    echo ""
+    printf '\n'
 }
 
 cmd_monitor() {
@@ -1110,16 +1110,16 @@ cmd_monitor() {
     fi
 
     header "Real-time Monitor (refresh: ${interval}s)"
-    echo "  Press Ctrl+C to exit"
-    echo ""
+    printf '%s\n' "  Press Ctrl+C to exit"
+    printf '\n'
 
     while true; do
         # Refresh cache for accurate status
         invalidate_cache
 
         clear
-        echo -e "${BOLD}${CYAN}Windows Container Monitor${RESET} - $(date '+%Y-%m-%d %H:%M:%S')"
-        echo -e "${DIM}$(printf '─%.0s' {1..70})${RESET}"
+        printf '%s\n' "${BOLD}${CYAN}Windows Container Monitor${RESET} - $(date '+%Y-%m-%d %H:%M:%S')"
+        printf '%s\n' "${DIM}$(printf '─%.0s' {1..70})${RESET}"
 
         local running_count=0
         local stopped_count=0
@@ -1142,13 +1142,13 @@ cmd_monitor() {
         done
 
         if [[ $total_count -eq 0 ]]; then
-            echo -e "  ${DIM}No containers found${RESET}"
+            printf '%s\n' "  ${DIM}No containers found${RESET}"
         fi
 
-        echo ""
-        echo -e "  ${BOLD}Summary:${RESET} ${GREEN}$running_count running${RESET}, ${RED}$stopped_count stopped${RESET}, $total_count total"
-        echo ""
-        echo -e "  ${DIM}Refreshing in ${interval}s... (Ctrl+C to exit)${RESET}"
+        printf '\n'
+        printf '%s\n' "  ${BOLD}Summary:${RESET} ${GREEN}$running_count running${RESET}, ${RED}$stopped_count stopped${RESET}, $total_count total"
+        printf '\n'
+        printf '%s\n' "  ${DIM}Refreshing in ${interval}s... (Ctrl+C to exit)${RESET}"
 
         sleep "$interval"
     done
@@ -1170,12 +1170,12 @@ cmd_refresh() {
     # Show cache info
     local age
     age=$(get_cache_age)
-    echo ""
-    echo -e "  ${BOLD}Cache Info:${RESET}"
-    echo -e "    → File:     ${CYAN}${CACHE_FILE}${RESET}"
-    echo -e "    → Age:      ${age} seconds"
-    echo -e "    → Max Age:  ${CACHE_MAX_AGE} seconds (7 days)"
-    echo ""
+    printf '\n'
+    printf '%s\n' "  ${BOLD}Cache Info:${RESET}"
+    printf '%s\n' "    → File:     ${CYAN}${CACHE_FILE}${RESET}"
+    printf '%s\n' "    → Age:      ${age} seconds"
+    printf '%s\n' "    → Max Age:  ${CACHE_MAX_AGE} seconds (7 days)"
+    printf '\n'
 
     # Show summary
     local cnt_running=0 cnt_stopped=0 cnt_other=0
@@ -1186,8 +1186,8 @@ cmd_refresh() {
             *)       ((cnt_other++)) || true ;;
         esac
     done
-    echo -e "  ${BOLD}Containers:${RESET} ${GREEN}${cnt_running} running${RESET}, ${RED}${cnt_stopped} stopped${RESET}, ${DIM}${cnt_other} other${RESET}"
-    echo ""
+    printf '%s\n' "  ${BOLD}Containers:${RESET} ${GREEN}${cnt_running} running${RESET}, ${RED}${cnt_stopped} stopped${RESET}, ${DIM}${cnt_other} other${RESET}"
+    printf '\n'
 }
 
 # ==============================================================================
@@ -1276,7 +1276,7 @@ main() {
             ;;
         *)
             error "Unknown command: $command"
-            echo "Run '${SCRIPT_NAME} help' for usage information"
+            printf '%s\n' "Run '${SCRIPT_NAME} help' for usage information"
             exit 1
             ;;
     esac

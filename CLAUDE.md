@@ -29,6 +29,16 @@ The container starts via `/run/entry.sh` which sources scripts in sequence:
 - VirtIO drivers downloaded at build time from `qemus/virtiso-whql`
 - Multi-arch support: amd64 native, arm64 via `dockur/windows-arm`
 
+### GitHub Codespaces
+
+The `.devcontainer/` directory provides GitHub Codespaces configurations — separate from the `compose/` files used by `winctl.sh`.
+
+- `devcontainer.json` (root): Default config, launches Windows 11 Pro
+- Numbered subfolders (010–210): Alternative configs for each Windows version
+- `codespaces.yml`: Shared compose file using `ghcr.io/dockur/windows`
+- Runs a single VM at a time on ports 8006/3389 (no unique port mapping needed)
+- Do not sync ports with `compose/` files — they serve different use cases
+
 ## Commands
 
 ### Linting & Validation

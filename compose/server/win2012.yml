@@ -16,5 +16,5 @@ services:
       - 3212:3389/udp
     volumes:
       - ../../data/win2012:/storage
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-on-failure}
     stop_grace_period: 2m

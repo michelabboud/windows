@@ -16,7 +16,7 @@ services:
       - 3307:3389/udp
     volumes:
       - ../../data/win7:/storage
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-on-failure}
     stop_grace_period: 2m
 
   win7e:
@@ -36,5 +36,5 @@ services:
       - 3371:3389/udp
     volumes:
       - ../../data/win7e:/storage
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-on-failure}
     stop_grace_period: 2m

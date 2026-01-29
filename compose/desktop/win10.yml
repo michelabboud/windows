@@ -16,7 +16,7 @@ services:
       - 3310:3389/udp
     volumes:
       - ../../data/win10:/storage
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-on-failure}
     stop_grace_period: 2m
 
   win10e:
@@ -36,7 +36,7 @@ services:
       - 3314:3389/udp
     volumes:
       - ../../data/win10e:/storage
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-on-failure}
     stop_grace_period: 2m
 
   win10l:
@@ -56,5 +56,5 @@ services:
       - 3315:3389/udp
     volumes:
       - ../../data/win10l:/storage
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-on-failure}
     stop_grace_period: 2m

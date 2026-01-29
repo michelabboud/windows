@@ -136,6 +136,7 @@ DISK_SIZE=128G
 USERNAME=docker
 PASSWORD=admin
 LANGUAGE=en
+RESTART_POLICY=on-failure  # Options: no, on-failure, always, unless-stopped
 ```
 
 > 📖 See [WINCTL_GUIDE.md](WINCTL_GUIDE.md) for complete documentation, usage scenarios, and troubleshooting.

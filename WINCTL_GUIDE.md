@@ -410,6 +410,7 @@ REGION=en-US
 KEYBOARD=en-US
 DHCP=N
 SAMBA=Y
+RESTART_POLICY=on-failure
 DEBUG=N
 ```
 
@@ -429,7 +430,19 @@ DEBUG=N
 | `HEIGHT` | Display height | 720 |
 | `DHCP` | Use DHCP networking | N |
 | `SAMBA` | Enable file sharing | Y |
+| `RESTART_POLICY` | Container restart policy | on-failure |
 | `DEBUG` | Debug mode | N |
+
+### Restart Policy Options
+
+| Value | Description |
+|-------|-------------|
+| `no` | Never restart automatically |
+| `on-failure` | Restart only if container exits with error (default) |
+| `always` | Always restart regardless of exit status |
+| `unless-stopped` | Always restart unless manually stopped |
+
+**Note:** With `on-failure` (default), shutting down Windows from inside will stop the container. With `unless-stopped` or `always`, the container will restart after Windows shutdown.
 
 ---
 

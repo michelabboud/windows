@@ -16,7 +16,7 @@ services:
       - 3311:3389/udp
     volumes:
       - ../../data/win11:/storage
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-on-failure}
     stop_grace_period: 2m
 
   win11e:
@@ -36,7 +36,7 @@ services:
       - 3312:3389/udp
     volumes:
       - ../../data/win11e:/storage
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-on-failure}
     stop_grace_period: 2m
 
   win11l:
@@ -56,5 +56,5 @@ services:
       - 3313:3389/udp
     volumes:
       - ../../data/win11l:/storage
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-on-failure}
     stop_grace_period: 2m

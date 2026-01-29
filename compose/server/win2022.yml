@@ -16,5 +16,5 @@ services:
       - 3322:3389/udp
     volumes:
       - ../../data/win2022:/storage
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-on-failure}
     stop_grace_period: 2m

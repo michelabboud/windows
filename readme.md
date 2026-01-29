@@ -133,10 +133,12 @@ Edit these files to customize:
 RAM_SIZE=8G
 CPU_CORES=4
 DISK_SIZE=128G
-USERNAME=Docker
+USERNAME=docker
 PASSWORD=admin
 LANGUAGE=en
 ```
+
+> 📖 See [WINCTL_GUIDE.md](WINCTL_GUIDE.md) for complete documentation, usage scenarios, and troubleshooting.
 
 ### Folder Structure
 

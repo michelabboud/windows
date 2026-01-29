@@ -9,6 +9,7 @@ A comprehensive guide to managing Windows Docker containers with `winctl.sh`.
 - [Quick Start](#quick-start)
 - [Commands Reference](#commands-reference)
 - [Configuration](#configuration)
+- [ARM64 Setup](#arm64-setup)
 - [Interactive Menus](#interactive-menus)
 - [Common Scenarios](#common-scenarios)
 - [Troubleshooting](#troubleshooting)
@@ -25,6 +26,7 @@ A comprehensive guide to managing Windows Docker containers with `winctl.sh`.
 - **Interactive menus** when you don't specify a version
 - **Status caching** for fast performance
 - **Resource profiles** optimized for modern and legacy systems
+- **ARM64 auto-detection** with architecture-aware image selection and version filtering
 
 ### Supported Windows Versions
 
@@ -101,6 +103,14 @@ Prerequisites Check
 [OK] Disk space OK: 500GB available (128GB needed)
 
 [OK] All critical prerequisites passed!
+  Architecture: amd64
+```
+
+On ARM64, the output also shows:
+```
+  Architecture: arm64
+  ARM64 image:  dockurr/windows-arm
+  Supported:    win11 win11e win11l win10 win10e win10l
 ```
 
 ### Fix Common Issues
@@ -176,10 +186,11 @@ Start one or more containers.
 
 **What it does:**
 1. Checks prerequisites (Docker, KVM)
-2. Creates data directory if missing
-3. Checks available resources
-4. Starts the container
-5. Shows connection details
+2. Detects architecture and blocks unsupported versions on ARM64
+3. Creates data directory if missing
+4. Checks available resources
+5. Starts the container
+6. Shows connection details
 
 ---
 
@@ -331,6 +342,11 @@ Available Windows Versions
     win7       Windows 7 Ultimate           (2G RAM)
 ```
 
+On ARM64, unsupported versions show an `[x86 only]` tag:
+```
+    win7       Windows 7 Ultimate           (2G RAM) [x86 only]
+```
+
 ---
 
 ### inspect
@@ -471,6 +487,59 @@ DEBUG=N
 
 ---
 
+## ARM64 Setup
+
+If you're running on an ARM64 system (e.g., Apple Silicon Mac, Ampere server), follow these steps:
+
+### 1. Set the Docker image
+
+Edit `.env.modern` (and `.env.legacy` if needed):
+
+```bash
+WINDOWS_IMAGE=dockurr/windows-arm
+```
+
+### 2. Check your setup
+
+```bash
+./winctl.sh check
+```
+
+Verify the output shows `Architecture: arm64` and lists supported versions.
+
+### 3. Start a supported version
+
+Only Windows 10 and 11 variants work on ARM64:
+
+```bash
+./winctl.sh start win11    # Works
+./winctl.sh start win10    # Works
+./winctl.sh start winxp    # Blocked with error
+```
+
+### 4. View compatible versions
+
+```bash
+./winctl.sh list
+```
+
+Unsupported versions are tagged `[x86 only]` on ARM64 systems.
+
+### Supported ARM64 Versions
+
+| Version | Name |
+|---------|------|
+| win11 | Windows 11 Pro |
+| win11e | Windows 11 Enterprise |
+| win11l | Windows 11 LTSC |
+| win10 | Windows 10 Pro |
+| win10e | Windows 10 Enterprise |
+| win10l | Windows 10 LTSC |
+
+All other versions (Win 8.1, 7, Vista, XP, 2000, all Server editions, Tiny) are x86 only.
+
+---
+
 ## Interactive Menus
 
 When you don't specify a version, `winctl.sh` shows interactive menus.
@@ -587,7 +656,23 @@ Select Version(s)
    ./winctl.sh start win11
    ```
 
-### Scenario 6: Fresh Start (Reset VM)
+### Scenario 6: Running on ARM64
+
+```bash
+# Set the ARM64 image (one-time setup)
+# Edit .env.modern and set: WINDOWS_IMAGE=dockurr/windows-arm
+
+# Check architecture is detected
+./winctl.sh check
+
+# List versions to see what's available
+./winctl.sh list
+
+# Start a supported version
+./winctl.sh start win11
+```
+
+### Scenario 7: Fresh Start (Reset VM)
 
 ```bash
 # This destroys the container but keeps data

@@ -1296,6 +1296,11 @@ show_usage() {
     printf '    Each version has unique ports for Web UI and RDP access.\n'
     printf "    Run '%s list' to see port mappings.\n" "${SCRIPT_NAME}"
     printf '\n'
+    printf '%b\n' "${BOLD}ARM64 SUPPORT${RESET}"
+    printf '    Auto-detected via uname. Only Win 10/11 variants supported on ARM64.\n'
+    printf '    Set WINDOWS_IMAGE=dockurr/windows-arm in .env.modern or .env.legacy.\n'
+    printf "    Run '%s check' to see detected architecture.\n" "${SCRIPT_NAME}"
+    printf '\n'
 }
 
 # ==============================================================================

@@ -79,7 +79,7 @@ This repository includes pre-configured compose files for all Windows versions w
 Use `winctl.sh` for easy container management:
 
 ```bash
-# Check prerequisites
+# Check prerequisites and detected architecture
 ./winctl.sh check
 
 # Start a container (interactive menu if no version specified)
@@ -91,12 +91,12 @@ Use `winctl.sh` for easy container management:
 
 # Stop containers (with confirmation)
 ./winctl.sh stop win11
-./winctl.sh stop all               # Stop all running
+./winctl.sh stop all           # Stop all running
 
 # View logs
 ./winctl.sh logs win11 -f
 
-# List all available versions
+# List all available versions (shows [x86 only] on ARM64)
 ./winctl.sh list
 ./winctl.sh list desktop       # Filter by category
 
@@ -106,7 +106,7 @@ Use `winctl.sh` for easy container management:
 # Rebuild container (preserves data)
 ./winctl.sh rebuild win11
 
-# Full help
+# Full help (includes ARM64 info)
 ./winctl.sh help
 ```
 
@@ -224,7 +224,31 @@ data/                    # VM storage (per-version folders)
   | `2003` | Windows Server 2003       | 0.6 GB   |
 
 > [!TIP]
-> To install ARM64 versions of Windows use [dockur/windows-arm](https://github.com/dockur/windows-arm/). The `winctl.sh` script auto-detects your architecture and blocks unsupported versions on ARM. Set `WINDOWS_IMAGE=dockurr/windows-arm` in your `.env.modern` file when running on ARM64. Only Windows 10 and 11 variants are supported on ARM64.
+> To install ARM64 versions of Windows use [dockur/windows-arm](https://github.com/dockur/windows-arm/).
+
+### How do I run on ARM64?
+
+  The `winctl.sh` script auto-detects your CPU architecture. On ARM64 systems (e.g., Apple Silicon, Ampere), only Windows 10 and 11 variants are supported:
+
+  | **Value** | **Version** |
+  |---|---|
+  | `11` | Windows 11 Pro |
+  | `11l` | Windows 11 LTSC |
+  | `11e` | Windows 11 Enterprise |
+  | `10` | Windows 10 Pro |
+  | `10l` | Windows 10 LTSC |
+  | `10e` | Windows 10 Enterprise |
+
+  To configure, set the ARM64 image in your `.env.modern` or `.env.legacy` file:
+
+  ```bash
+  WINDOWS_IMAGE=dockurr/windows-arm
+  ```
+
+  The script will automatically:
+  - Block unsupported versions with a clear error on `start`
+  - Show `[x86 only]` tags next to unsupported versions on `list`
+  - Display your detected architecture on `check`
 
 ### How do I change the storage location?
 

@@ -1,6 +1,6 @@
 services:
   win2022:
-    image: dockurr/windows
+    image: ${WINDOWS_IMAGE:-dockurr/windows}
     container_name: win2022
     env_file: ../../.env.modern
     environment:

@@ -1,6 +1,6 @@
 services:
   win2016:
-    image: dockurr/windows
+    image: ${WINDOWS_IMAGE:-dockurr/windows}
     container_name: win2016
     env_file: ../../.env.modern
     environment:

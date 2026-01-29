@@ -1,6 +1,6 @@
 services:
   winxp:
-    image: dockurr/windows
+    image: ${WINDOWS_IMAGE:-dockurr/windows}
     container_name: winxp
     env_file: ../../.env.legacy
     environment:

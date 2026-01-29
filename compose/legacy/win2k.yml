@@ -1,6 +1,6 @@
 services:
   win2k:
-    image: dockurr/windows
+    image: ${WINDOWS_IMAGE:-dockurr/windows}
     container_name: win2k
     env_file: ../../.env.legacy
     environment:

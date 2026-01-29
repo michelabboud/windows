@@ -224,7 +224,7 @@ data/                    # VM storage (per-version folders)
   | `2003` | Windows Server 2003       | 0.6 GB   |
 
 > [!TIP]
-> To install ARM64 versions of Windows use [dockur/windows-arm](https://github.com/dockur/windows-arm/).
+> To install ARM64 versions of Windows use [dockur/windows-arm](https://github.com/dockur/windows-arm/). The `winctl.sh` script auto-detects your architecture and blocks unsupported versions on ARM. Set `WINDOWS_IMAGE=dockurr/windows-arm` in your `.env.modern` file when running on ARM64. Only Windows 10 and 11 variants are supported on ARM64.
 
 ### How do I change the storage location?
 

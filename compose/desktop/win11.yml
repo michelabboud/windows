@@ -1,6 +1,6 @@
 services:
   win11:
-    image: dockurr/windows
+    image: ${WINDOWS_IMAGE:-dockurr/windows}
     container_name: win11
     env_file: ../../.env.modern
     environment:
@@ -20,7 +20,7 @@ services:
     stop_grace_period: 2m
 
   win11e:
-    image: dockurr/windows
+    image: ${WINDOWS_IMAGE:-dockurr/windows}
     container_name: win11e
     env_file: ../../.env.modern
     environment:
@@ -40,7 +40,7 @@ services:
     stop_grace_period: 2m
 
   win11l:
-    image: dockurr/windows
+    image: ${WINDOWS_IMAGE:-dockurr/windows}
     container_name: win11l
     env_file: ../../.env.modern
     environment:

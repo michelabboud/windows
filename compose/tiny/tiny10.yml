@@ -1,6 +1,6 @@
 services:
   tiny10:
-    image: dockurr/windows
+    image: ${WINDOWS_IMAGE:-dockurr/windows}
     container_name: tiny10
     env_file: ../../.env.legacy
     environment:

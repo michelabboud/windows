@@ -62,6 +62,11 @@ readonly ALL_VERSIONS=(
     tiny11 tiny10
 )
 
+# Versions supported on ARM64
+readonly ARM_VERSIONS=(
+    win11 win11e win11l win10 win10e win10l
+)
+
 # Port mappings (web)
 declare -A VERSION_PORTS_WEB=(
     ["win11"]=8011 ["win11e"]=8012 ["win11l"]=8013
@@ -197,6 +202,36 @@ table_header() {
     printf "  %s%-12s %-26s %-10s %-8s %-8s%s\n" \
         "${BOLD}${DIM}" "VERSION" "NAME" "STATUS" "WEB" "RDP" "${RESET}"
     printf '%s\n' "  ${DIM}$(printf '─%.0s' {1..66})${RESET}"
+}
+
+# ==============================================================================
+# ARCHITECTURE DETECTION
+# ==============================================================================
+
+DETECTED_ARCH=""
+
+detect_arch() {
+    if [[ -n "$DETECTED_ARCH" ]]; then
+        return
+    fi
+    local machine
+    machine=$(uname -m)
+    case "$machine" in
+        x86_64|amd64)   DETECTED_ARCH="amd64" ;;
+        aarch64|arm64)  DETECTED_ARCH="arm64" ;;
+        *)              DETECTED_ARCH="amd64" ;;
+    esac
+}
+
+is_arm_supported() {
+    local version="$1"
+    local v
+    for v in "${ARM_VERSIONS[@]}"; do
+        if [[ "$v" == "$version" ]]; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 # ==============================================================================
@@ -692,6 +727,16 @@ cmd_start() {
         validate_version "$v" || exit 1
     done
 
+    # Check ARM compatibility
+    detect_arch
+    if [[ "$DETECTED_ARCH" == "arm64" ]]; then
+        for v in "${versions[@]}"; do
+            if ! is_arm_supported "$v"; then
+                die "${VERSION_DISPLAY_NAMES[$v]} ($v) is not supported on ARM64. Supported: ${ARM_VERSIONS[*]}"
+            fi
+        done
+    fi
+
     # Run prerequisite checks
     check_docker || exit 1
     check_kvm || exit 1
@@ -1027,6 +1072,7 @@ cmd_rebuild() {
 cmd_list() {
     local category="${1:-all}"
 
+    detect_arch
     header "Available Windows Versions"
 
     local categories=()
@@ -1062,7 +1108,11 @@ cmd_list() {
                 else
                     resource_tag="${DIM}(2G RAM)${RESET}"
                 fi
-                printf "    %-10s %-28s %s %s\n" "$v" "${VERSION_DISPLAY_NAMES[$v]}" "$resource_tag" "$status"
+                local arch_tag=""
+                if [[ "$DETECTED_ARCH" == "arm64" ]] && ! is_arm_supported "$v"; then
+                    arch_tag="${RED}[x86 only]${RESET}"
+                fi
+                printf "    %-10s %-28s %s %s %s\n" "$v" "${VERSION_DISPLAY_NAMES[$v]}" "$resource_tag" "$arch_tag" "$status"
             fi
         done
     done
@@ -1155,7 +1205,14 @@ cmd_monitor() {
 }
 
 cmd_check() {
+    detect_arch
     run_all_checks
+    printf '%s\n' "  ${BOLD}Architecture:${RESET} ${DETECTED_ARCH}"
+    if [[ "$DETECTED_ARCH" == "arm64" ]]; then
+        printf '%s\n' "  ${BOLD}ARM64 image:${RESET}  dockurr/windows-arm"
+        printf '%s\n' "  ${BOLD}Supported:${RESET}    ${ARM_VERSIONS[*]}"
+    fi
+    printf '\n'
 }
 
 cmd_refresh() {

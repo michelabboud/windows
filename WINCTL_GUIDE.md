@@ -35,6 +35,27 @@ A comprehensive guide to managing Windows Docker containers with `winctl.sh`.
 | **Server** | win2025, win2022, win2019, win2016, win2012, win2008, win2003 |
 | **Tiny** | tiny11, tiny10 |
 
+### ARM64 Support
+
+The script auto-detects your CPU architecture. On ARM64 systems (e.g., Apple Silicon, Ampere), only the following versions are supported:
+
+| Version | Name |
+|---------|------|
+| win11 | Windows 11 Pro |
+| win11e | Windows 11 Enterprise |
+| win11l | Windows 11 LTSC |
+| win10 | Windows 10 Pro |
+| win10e | Windows 10 Enterprise |
+| win10l | Windows 10 LTSC |
+
+To run on ARM64, set the Docker image in your `.env.modern` file:
+
+```bash
+WINDOWS_IMAGE=dockurr/windows-arm
+```
+
+The `winctl.sh list` command shows `[x86 only]` tags on ARM64 for unsupported versions, and `winctl.sh start` blocks unsupported versions with a clear error message.
+
 ### Port Mappings
 
 Each version has unique ports to avoid conflicts:
@@ -435,6 +456,7 @@ DEBUG=N
 | `SAMBA` | Enable file sharing | Y |
 | `RESTART_POLICY` | Container restart policy | on-failure |
 | `DEBUG` | Debug mode | N |
+| `WINDOWS_IMAGE` | Docker image | dockurr/windows |
 
 ### Restart Policy Options
 

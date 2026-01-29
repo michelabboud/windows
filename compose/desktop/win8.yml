@@ -1,6 +1,6 @@
 services:
   win81:
-    image: dockurr/windows
+    image: ${WINDOWS_IMAGE:-dockurr/windows}
     container_name: win81
     env_file: ../../.env.legacy
     environment:
@@ -20,7 +20,7 @@ services:
     stop_grace_period: 2m
 
   win81e:
-    image: dockurr/windows
+    image: ${WINDOWS_IMAGE:-dockurr/windows}
     container_name: win81e
     env_file: ../../.env.legacy
     environment:

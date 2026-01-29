@@ -1,6 +1,6 @@
 services:
   win7:
-    image: dockurr/windows
+    image: ${WINDOWS_IMAGE:-dockurr/windows}
     container_name: win7
     env_file: ../../.env.legacy
     environment:
@@ -20,7 +20,7 @@ services:
     stop_grace_period: 2m
 
   win7e:
-    image: dockurr/windows
+    image: ${WINDOWS_IMAGE:-dockurr/windows}
     container_name: win7e
     env_file: ../../.env.legacy
     environment:

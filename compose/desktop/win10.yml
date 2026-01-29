@@ -1,6 +1,6 @@
 services:
   win10:
-    image: dockurr/windows
+    image: ${WINDOWS_IMAGE:-dockurr/windows}
     container_name: win10
     env_file: ../../.env.modern
     environment:
@@ -20,7 +20,7 @@ services:
     stop_grace_period: 2m
 
   win10e:
-    image: dockurr/windows
+    image: ${WINDOWS_IMAGE:-dockurr/windows}
     container_name: win10e
     env_file: ../../.env.modern
     environment:
@@ -40,7 +40,7 @@ services:
     stop_grace_period: 2m
 
   win10l:
-    image: dockurr/windows
+    image: ${WINDOWS_IMAGE:-dockurr/windows}
     container_name: win10l
     env_file: ../../.env.modern
     environment:

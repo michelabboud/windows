@@ -1,6 +1,6 @@
 services:
   win2003:
-    image: dockurr/windows
+    image: ${WINDOWS_IMAGE:-dockurr/windows}
     container_name: win2003
     env_file: ../../.env.legacy
     environment:

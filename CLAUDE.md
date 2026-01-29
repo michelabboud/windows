@@ -125,6 +125,13 @@ gh pr edit <pr-number> --repo dockur/windows --body "..."
 gh release edit <tag> --notes "..."
 ```
 
+### Active PRs
+
+| PR | Branch | Issue | Description |
+|----|--------|-------|-------------|
+| [#1637](https://github.com/dockur/windows/pull/1637) | `feat/winctl-management-script` | [#1639](https://github.com/dockur/windows/issues/1639) | winctl.sh management script with ARM64 support |
+| [#1638](https://github.com/dockur/windows/pull/1638) | `fix/reviewdog-fail-level` | [#1640](https://github.com/dockur/windows/issues/1640) | Replace deprecated fail_on_error with fail_level in reviewdog actions |
+
 ## Adding New Windows Versions
 
 1. Add version aliases in `src/define.sh` `parseVersion()` function

@@ -1075,6 +1075,26 @@ cmd_start() {
             mkdir -p "$data_dir"
         fi
 
+        # Pre-populate from ISO cache if data dir is empty
+        if [[ -z "$(ls -A "$data_dir" 2>/dev/null)" ]]; then
+            local cache_src="$ISO_CACHE_DIR/$RESOLVED_BASE"
+            if [[ -d "$cache_src" ]]; then
+                local iso_files
+                iso_files=$(find "$cache_src" -maxdepth 1 -name '*.iso' -type f 2>/dev/null || true)
+                if [[ -n "$iso_files" ]]; then
+                    info "Restoring cached ISO for $RESOLVED_BASE..."
+                    cp "$cache_src"/*.iso "$data_dir/"
+                    # Reset magic byte so the container re-processes the ISO
+                    # (installs from it) instead of trying to boot a missing disk
+                    local restored_iso
+                    for restored_iso in "$data_dir"/*.iso; do
+                        printf '\x00' | dd of="$restored_iso" bs=1 seek=0 count=1 conv=notrunc status=none 2>/dev/null || true
+                    done
+                    success "ISO restored from cache (skipping download)"
+                fi
+            fi
+        fi
+
         # Check ports are available
         if ! check_port "$RESOLVED_WEB_PORT"; then
             error "Web port $RESOLVED_WEB_PORT is already in use"
@@ -2353,6 +2373,11 @@ cmd_new() {
             if [[ -n "$iso_files" ]]; then
                 info "Restoring cached ISO for $version..."
                 cp "$cache_src"/*.iso "$data_dir/"
+                # Reset magic byte so the container re-processes the ISO
+                local restored_iso
+                for restored_iso in "$data_dir"/*.iso; do
+                    printf '\x00' | dd of="$restored_iso" bs=1 seek=0 count=1 conv=notrunc status=none 2>/dev/null || true
+                done
                 success "ISO restored from cache (skipping download)"
             fi
         fi

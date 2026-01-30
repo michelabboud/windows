@@ -532,7 +532,7 @@ Remove stopped containers and optionally purge their data directories.
 ./winctl.sh clean --data
 ```
 
-Requires typing `yes` to confirm. Shows freed disk space on completion.
+Requires typing `yes` to confirm. Shows freed disk space on completion. Stopped instances are automatically unregistered and their compose files removed.
 
 ---
 
@@ -706,7 +706,7 @@ Windows ISOs are large (3-6 GB) and re-downloaded every time a new container is 
 2. Cache the ISO: `./winctl.sh cache save winxp`
 3. Create new instances — cached ISOs are auto-restored: `./winctl.sh start winxp --new`
 
-When creating a new instance with `--new`, winctl checks `cache/<version>/` for ISOs and copies them into the new instance's data directory before starting the container. The container sees the ISO on startup and skips the download.
+When creating a new instance with `--new`, winctl checks `cache/<version>/` for ISOs and metadata files, then copies them into the new instance's data directory before starting the container. The container recognizes the ISO as already processed and boots directly — no download or re-extraction needed.
 
 ### Caching an ISO
 
@@ -716,7 +716,7 @@ When creating a new instance with `--new`, winctl checks `cache/<version>/` for 
 ./winctl.sh cache save win11
 ```
 
-The ISOs are copied from `data/<name>/` to `cache/<base-version>/`.
+The ISOs and metadata files (`windows.base`, `windows.ver`, `windows.mode`, `windows.type`, `windows.args`) are copied from `data/<name>/` to `cache/<base-version>/`.
 
 ### Listing Cached ISOs
 
@@ -743,25 +743,43 @@ Both commands require typing `yes` to confirm.
 When creating a new instance with `--new` (without `--clone`), winctl automatically checks the cache:
 
 ```bash
-# If cache/winxp/ has ISOs, they are copied to data/winxp-1/ before start
+# If cache/winxp/ has ISOs + metadata, they are copied to data/winxp-1/ before start
 ./winctl.sh start winxp --new
 ```
 
-This is skipped when using `--clone`, since cloning copies all data from the base version including any ISOs.
+Both the ISO and metadata files are restored so the container recognizes the ISO as already processed. This is skipped when using `--clone`, since cloning copies all data from the base version including any ISOs.
+
+### Auto-Cache on Stop
+
+To automatically cache ISOs whenever a container is stopped, add `AUTO_CACHE=Y` to your `.env` file:
+
+```bash
+# .env
+AUTO_CACHE=Y
+```
+
+When enabled, `winctl.sh stop` will silently cache any ISOs found in the stopped container's data directory. ISOs that are already cached are skipped. This removes the need to manually run `cache save` after the first download.
 
 ### Cache Directory Structure
 
 ```
 cache/
 ├── winxp/
-│   └── custom.iso
+│   ├── winxpx86.iso
+│   ├── windows.base
+│   ├── windows.ver
+│   ├── windows.mode
+│   ├── windows.type
+│   └── windows.args
 ├── win11/
-│   └── win11x64.iso
+│   ├── win11x64.iso
+│   └── ...
 └── win10/
-    └── win10x64.iso
+    ├── win10x64.iso
+    └── ...
 ```
 
-> **Note:** The cache stores processed ISOs from the container's data directory, not raw downloads.
+> **Note:** The cache stores processed ISOs and their metadata from the container's data directory, not raw downloads. Metadata files tell the container the ISO is already processed, so it boots directly without re-extracting or re-downloading.
 
 ---
 
@@ -823,6 +841,7 @@ DEBUG=N
 | `RESTART_POLICY` | Container restart policy | on-failure |
 | `DEBUG` | Debug mode | N |
 | `WINDOWS_IMAGE` | Docker image | dockurr/windows |
+| `AUTO_CACHE` | Auto-cache ISOs on stop (in `.env`) | N |
 
 ### Restart Policy Options
 
@@ -1229,8 +1248,16 @@ For servers, you can start VMs and access only via RDP:
 ## Getting Help
 
 ```bash
-# Show all commands
+# Show commands + interactive topic menu
 ./winctl.sh help
+
+# Jump to a specific topic
+./winctl.sh help commands       # Full command reference
+./winctl.sh help instances      # Multi-instance support
+./winctl.sh help cache          # ISO cache management
+./winctl.sh help examples       # Usage examples
+./winctl.sh help config         # Environment settings
+./winctl.sh help all            # Show everything
 
 # Check system requirements
 ./winctl.sh check
@@ -1238,5 +1265,7 @@ For servers, you can start VMs and access only via RDP:
 # List all versions
 ./winctl.sh list
 ```
+
+When run interactively, `help` shows a numbered menu to browse topics. When piped or run in a script, it prints the command summary only.
 
 For issues, visit: https://github.com/dockur/windows/issues

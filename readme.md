@@ -134,6 +134,7 @@ Use `winctl.sh` for easy container management:
 ./winctl.sh cache list                 # Show cached ISOs
 ./winctl.sh cache rm winxp             # Remove cached winxp ISO
 ./winctl.sh cache flush                # Clear all cached ISOs
+# Or set AUTO_CACHE=Y in .env to cache ISOs automatically on stop
 
 # Full help (includes ARM64 info)
 ./winctl.sh help

@@ -182,6 +182,14 @@ readonly MODERN_DISK_GB=128
 readonly LEGACY_RAM_GB=2
 readonly LEGACY_DISK_GB=32
 
+# Winctl settings (loaded from .env)
+AUTO_CACHE="N"
+if [[ -f "$SCRIPT_DIR/.env" ]]; then
+    _val=$(grep -E '^AUTO_CACHE=' "$SCRIPT_DIR/.env" 2>/dev/null | tail -1 | cut -d'=' -f2- || true)
+    [[ -n "$_val" ]] && AUTO_CACHE="$_val"
+    unset _val
+fi
+
 # ==============================================================================
 # OUTPUT HELPERS
 # ==============================================================================
@@ -1081,16 +1089,19 @@ cmd_start() {
         if [[ -z "$existing_isos" ]]; then
             local cache_src="$ISO_CACHE_DIR/$RESOLVED_BASE"
             if [[ -d "$cache_src" ]]; then
-                local cached_isos
-                cached_isos=$(find "$cache_src" -maxdepth 1 -name '*.iso' -type f 2>/dev/null || true)
-                if [[ -n "$cached_isos" ]]; then
-                    info "Restoring cached ISO for $RESOLVED_BASE..."
-                    cp "$cache_src"/*.iso "$data_dir/"
-                    # Reset magic byte so the container re-processes the ISO
-                    # (installs from it) instead of trying to boot a missing disk
-                    local restored_iso
-                    for restored_iso in "$data_dir"/*.iso; do
-                        printf '\x00' | dd of="$restored_iso" bs=1 seek=0 count=1 conv=notrunc status=none 2>/dev/null || true
+                local cached_iso
+                cached_iso=$(find "$cache_src" -maxdepth 1 -name '*.iso' -type f -print -quit 2>/dev/null || true)
+                if [[ -n "$cached_iso" ]]; then
+                    # Keep original filename — the container's parseVersion
+                    # determines the expected name (e.g. winxpx86.iso, not xp.iso)
+                    local iso_name
+                    iso_name=$(basename "$cached_iso")
+                    info "Restoring cached ISO: $iso_name..."
+                    cp "$cached_iso" "$data_dir/$iso_name"
+                    # Restore metadata so the container recognizes the ISO as processed
+                    local _meta
+                    for _meta in windows.base windows.ver windows.mode windows.type windows.args; do
+                        [[ -f "$cache_src/$_meta" ]] && cp "$cache_src/$_meta" "$data_dir/$_meta"
                     done
                     success "ISO restored from cache (skipping download)"
                 fi
@@ -1216,6 +1227,13 @@ cmd_stop() {
             error "Failed to stop $v"
         fi
     done
+
+    # Auto-cache ISOs if enabled
+    if [[ "${AUTO_CACHE^^}" == "Y" ]]; then
+        for v in "${versions[@]}"; do
+            auto_cache_save "$v"
+        done
+    fi
 
     # Refresh cache after state changes
     invalidate_cache
@@ -2222,6 +2240,12 @@ cmd_clean() {
             rm -rf "${SCRIPT_DIR:?}/data/$v"
             info "Deleted data/$v/"
         fi
+        # Unregister instances and remove their compose files
+        if is_instance "$v"; then
+            rm -f "$INSTANCE_DIR/${v}.yml"
+            unregister_instance "$v"
+            info "Unregistered instance $v"
+        fi
     done
 
     local freed_after
@@ -2370,15 +2394,19 @@ cmd_new() {
         # Pre-populate from ISO cache if available (skip if cloning)
         local cache_src="$ISO_CACHE_DIR/$version"
         if [[ -d "$cache_src" ]]; then
-            local iso_files
-            iso_files=$(find "$cache_src" -maxdepth 1 -name '*.iso' -type f 2>/dev/null || true)
-            if [[ -n "$iso_files" ]]; then
-                info "Restoring cached ISO for $version..."
-                cp "$cache_src"/*.iso "$data_dir/"
-                # Reset magic byte so the container re-processes the ISO
-                local restored_iso
-                for restored_iso in "$data_dir"/*.iso; do
-                    printf '\x00' | dd of="$restored_iso" bs=1 seek=0 count=1 conv=notrunc status=none 2>/dev/null || true
+            local cached_iso
+            cached_iso=$(find "$cache_src" -maxdepth 1 -name '*.iso' -type f -print -quit 2>/dev/null || true)
+            if [[ -n "$cached_iso" ]]; then
+                # Keep original filename — the container's parseVersion
+                # determines the expected name (e.g. winxpx86.iso, not xp.iso)
+                local iso_name
+                iso_name=$(basename "$cached_iso")
+                info "Restoring cached ISO: $iso_name..."
+                cp "$cached_iso" "$data_dir/$iso_name"
+                # Restore metadata so the container recognizes the ISO as processed
+                local _meta
+                for _meta in windows.base windows.ver windows.mode windows.type windows.args; do
+                    [[ -f "$cache_src/$_meta" ]] && cp "$cache_src/$_meta" "$data_dir/$_meta"
                 done
                 success "ISO restored from cache (skipping download)"
             fi
@@ -2569,6 +2597,38 @@ cmd_instances() {
 # ISO CACHE
 # ==============================================================================
 
+# Non-interactive cache save — silently skips if no ISOs or already cached.
+# Used by cmd_stop() when AUTO_CACHE=Y.
+auto_cache_save() {
+    local target="$1"
+    resolve_target "$target" || return 0
+
+    local data_dir="$SCRIPT_DIR/data/$RESOLVED_NAME"
+    local iso_files
+    iso_files=$(find "$data_dir" -maxdepth 1 -name '*.iso' -type f 2>/dev/null || true)
+    [[ -z "$iso_files" ]] && return 0
+
+    local cache_dest="$ISO_CACHE_DIR/$RESOLVED_BASE"
+    mkdir -p "$cache_dest"
+
+    while IFS= read -r iso; do
+        local filename
+        filename=$(basename "$iso")
+        if [[ ! -f "$cache_dest/$filename" ]]; then
+            cp "$iso" "$cache_dest/$filename"
+            info "Auto-cached ISO: $filename"
+        fi
+    done <<< "$iso_files"
+
+    # Cache metadata files so the container recognizes the ISO as processed
+    local meta
+    for meta in windows.base windows.ver windows.mode windows.type windows.args; do
+        if [[ -f "$data_dir/$meta" ]] && [[ ! -f "$cache_dest/$meta" ]]; then
+            cp "$data_dir/$meta" "$cache_dest/$meta"
+        fi
+    done
+}
+
 cmd_cache() {
     local subcmd="${1:-}"
     shift || true
@@ -2636,6 +2696,14 @@ cmd_cache_save() {
         printf '%s\n' "    Size: $size"
         ((count++))
     done <<< "$iso_files"
+
+    # Cache metadata files so the container recognizes the ISO as processed
+    local meta
+    for meta in windows.base windows.ver windows.mode windows.type windows.args; do
+        if [[ -f "$data_dir/$meta" ]] && [[ ! -f "$cache_dest/$meta" ]]; then
+            cp "$data_dir/$meta" "$cache_dest/$meta"
+        fi
+    done
 
     printf '\n'
     success "Cached $count ISO file(s) to cache/$RESOLVED_BASE/"
@@ -2782,42 +2850,143 @@ cmd_cache_flush() {
 # HELP
 # ==============================================================================
 
+# Print a help row: _help_row "cmd args" "description"
+# Uses fixed-width column so descriptions align regardless of ANSI bold codes.
+_help_row() {
+    local cmd="$1" desc="$2"
+    printf '    %b%-24s%b%s\n' "${BOLD}" "$cmd" "${RESET}" "$desc"
+}
+
 show_usage() {
+    local topic="${1:-}"
+
+    case "$topic" in
+        commands)   _help_topic_commands ;;
+        instances)  _help_topic_instances ;;
+        cache)      _help_topic_cache ;;
+        examples)   _help_topic_examples ;;
+        config)     _help_topic_config ;;
+        all)        _help_all ;;
+        "")         _help_summary ;;
+        *)
+            error "Unknown help topic: $topic"
+            printf '%s\n' "  Available topics: commands, instances, cache, examples, config, all"
+            exit 1
+            ;;
+    esac
+}
+
+_help_summary() {
     printf '%b\n' "${BOLD}${SCRIPT_NAME}${RESET} v${SCRIPT_VERSION} - Windows Docker Container Management"
     printf '\n'
     printf '%b\n' "${BOLD}USAGE${RESET}"
     printf '    %s <command> [options]\n' "${SCRIPT_NAME}"
     printf '\n'
     printf '%b\n' "${BOLD}COMMANDS${RESET}"
-    printf '    %b [version...]     Start container(s), interactive if no version\n' "${BOLD}start${RESET}"
-    printf '    %b [version...|all]  Stop container(s) or all running\n' "${BOLD}stop${RESET}"
-    printf '    %b [version...]   Restart container(s)\n' "${BOLD}restart${RESET}"
-    printf '    %b [version...]    Show status of container(s)\n' "${BOLD}status${RESET}"
-    printf '    %b <version> [-f]    View container logs (-f to follow)\n' "${BOLD}logs${RESET}"
-    printf '    %b <version>        Open bash shell in container\n' "${BOLD}shell${RESET}"
-    printf '    %b [version...]     Show real-time resource usage\n' "${BOLD}stats${RESET}"
-    printf '    %b                  Build Docker image locally\n' "${BOLD}build${RESET}"
-    printf '    %b [version...]   Destroy and recreate container(s)\n' "${BOLD}rebuild${RESET}"
-    printf '    %b [category]        List versions (desktop/legacy/server/tiny/all)\n' "${BOLD}list${RESET}"
-    printf '    %b <version>      Show detailed container info\n' "${BOLD}inspect${RESET}"
-    printf '    %b [interval]     Real-time dashboard (default: 5s refresh)\n' "${BOLD}monitor${RESET}"
-    printf '    %b                  Run prerequisites check\n' "${BOLD}check${RESET}"
-    printf '    %b                Force refresh status cache\n' "${BOLD}refresh${RESET}"
-    printf '    %b <version>       Open web viewer in browser\n' "${BOLD}open${RESET}"
-    printf '    %b                   Pull latest Docker image\n' "${BOLD}pull${RESET}"
-    printf '    %b [version...]      Show disk usage per VM\n' "${BOLD}disk${RESET}"
-    printf '    %b <ver> [name]  Back up VM data directory\n' "${BOLD}snapshot${RESET}"
-    printf '    %b <ver> [name]   Restore VM data from snapshot\n' "${BOLD}restore${RESET}"
-    printf '    %b [--data]         Remove stopped containers\n' "${BOLD}clean${RESET}"
-    printf '    %b <instance>    Permanently remove an instance\n' "${BOLD}destroy${RESET}"
-    printf '    %b [base]      List all registered instances\n' "${BOLD}instances${RESET}"
-    printf '    %b <sub>          Manage ISO cache (save/list/rm/flush)\n' "${BOLD}cache${RESET}"
-    printf '    %b                   Show this help message\n' "${BOLD}help${RESET}"
+    _help_row "start [version...]"      "Start container(s), interactive if no version"
+    _help_row "stop [version...|all]"   "Stop container(s) or all running"
+    _help_row "restart [version...]"    "Restart container(s)"
+    _help_row "status [version...]"     "Show status of container(s)"
+    _help_row "logs <version> [-f]"     "View container logs (-f to follow)"
+    _help_row "shell <version>"         "Open bash shell in container"
+    _help_row "stats [version...]"      "Show real-time resource usage"
+    _help_row "build"                   "Build Docker image locally"
+    _help_row "rebuild [version...]"    "Destroy and recreate container(s)"
+    _help_row "list [category]"         "List versions (desktop/legacy/server/tiny/all)"
+    _help_row "inspect <version>"       "Show detailed container info"
+    _help_row "monitor [interval]"      "Real-time dashboard (default: 5s refresh)"
+    _help_row "check"                   "Run prerequisites check"
+    _help_row "refresh"                 "Force refresh status cache"
+    _help_row "open <version>"          "Open web viewer in browser"
+    _help_row "pull"                    "Pull latest Docker image"
+    _help_row "disk [version...]"       "Show disk usage per VM"
+    _help_row "snapshot <ver> [name]"   "Back up VM data directory"
+    _help_row "restore <ver> [name]"    "Restore VM data from snapshot"
+    _help_row "clean [--data]"          "Remove stopped containers"
+    _help_row "destroy <instance>"      "Permanently remove an instance"
+    _help_row "instances [base]"        "List all registered instances"
+    _help_row "cache <sub>"             "Manage ISO cache (save/list/rm/flush)"
+    _help_row "help [topic]"            "Show help (topics below, or 'all')"
     printf '\n'
-    printf '%b\n' "${BOLD}INSTANCE FLAGS (used with start)${RESET}"
-    printf '    %b              Create a new instance of a version\n' "${BOLD}--new${RESET}"
-    printf '    %b [name]       Name the instance (default: auto-numbered)\n' "${BOLD}--new${RESET}"
-    printf '    %b            Clone data from base version to new instance\n' "${BOLD}--clone${RESET}"
+    printf '%b\n' "${BOLD}QUICK START${RESET}"
+    printf '    %s start win11             # Start Windows 11\n' "${SCRIPT_NAME}"
+    printf '    %s status                  # Show all containers\n' "${SCRIPT_NAME}"
+    printf '    %s stop win11              # Stop with confirmation\n' "${SCRIPT_NAME}"
+    printf '\n'
+
+    # Interactive menu only when running directly in a terminal
+    if _is_interactive; then
+        _help_interactive_menu
+    else
+        printf '  Topics: commands, instances, cache, examples, config, all\n'
+        printf '\n'
+    fi
+}
+
+# Check if the script is running interactively (not piped, not inside
+# another script, not in a CI/batch environment).
+_is_interactive() {
+    [[ -t 0 ]] && [[ -t 1 ]] || return 1
+    [[ "${TERM:-dumb}" != "dumb" ]] || return 1
+    [[ -z "${CI:-}" ]] && [[ -z "${BATCH:-}" ]] && [[ -z "${NONINTERACTIVE:-}" ]] || return 1
+    return 0
+}
+
+_help_interactive_menu() {
+    while true; do
+        printf '%b\n' "${BOLD}MORE HELP${RESET}"
+        printf '    1) Commands      Full command reference\n'
+        printf '    2) Instances     Multi-instance support\n'
+        printf '    3) Cache         ISO cache management\n'
+        printf '    4) Examples      Usage examples\n'
+        printf '    5) Config        Environment settings\n'
+        printf '    6) All           Show everything\n'
+        printf '\n'
+        printf '%s' "  Select [1-6] or Enter to exit: "
+
+        local choice
+        read -r choice
+
+        case "$choice" in
+            1) printf '\n'; _help_topic_commands ;;
+            2) printf '\n'; _help_topic_instances ;;
+            3) printf '\n'; _help_topic_cache ;;
+            4) printf '\n'; _help_topic_examples ;;
+            5) printf '\n'; _help_topic_config ;;
+            6) printf '\n'; _help_all; return 0 ;;
+            "") return 0 ;;
+            *)  warn "Invalid choice: $choice"; printf '\n' ;;
+        esac
+    done
+}
+
+_help_topic_commands() {
+    printf '%b\n' "${BOLD}COMMANDS${RESET}"
+    printf '\n'
+    _help_row "start [version...]"      "Start container(s), interactive if no version"
+    _help_row "stop [version...|all]"   "Stop container(s) or all running"
+    _help_row "restart [version...]"    "Restart container(s)"
+    _help_row "status [version...]"     "Show status of container(s)"
+    _help_row "logs <version> [-f]"     "View container logs (-f to follow)"
+    _help_row "shell <version>"         "Open bash shell in container"
+    _help_row "stats [version...]"      "Show real-time resource usage"
+    _help_row "build"                   "Build Docker image locally"
+    _help_row "rebuild [version...]"    "Destroy and recreate container(s)"
+    _help_row "list [category]"         "List versions (desktop/legacy/server/tiny/all)"
+    _help_row "inspect <version>"       "Show detailed container info"
+    _help_row "monitor [interval]"      "Real-time dashboard (default: 5s refresh)"
+    _help_row "check"                   "Run prerequisites check"
+    _help_row "refresh"                 "Force refresh status cache"
+    _help_row "open <version>"          "Open web viewer in browser"
+    _help_row "pull"                    "Pull latest Docker image"
+    _help_row "disk [version...]"       "Show disk usage per VM"
+    _help_row "snapshot <ver> [name]"   "Back up VM data directory"
+    _help_row "restore <ver> [name]"    "Restore VM data from snapshot"
+    _help_row "clean [--data]"          "Remove stopped containers"
+    _help_row "destroy <instance>"      "Permanently remove an instance"
+    _help_row "instances [base]"        "List all registered instances"
+    _help_row "cache <sub>"             "Manage ISO cache (save/list/rm/flush)"
+    _help_row "help [topic]"            "Show help (topics: commands, instances, cache, examples, config, all)"
     printf '\n'
     printf '%b\n' "${BOLD}CATEGORIES${RESET}"
     printf '    desktop    Win 11/10/8.1/7 (Pro, Enterprise, LTSC variants)\n'
@@ -2825,7 +2994,61 @@ show_usage() {
     printf '    server     Server 2025/2022/2019/2016/2012/2008/2003\n'
     printf '    tiny       Tiny11, Tiny10\n'
     printf '\n'
+    printf '%b\n' "${BOLD}PORTS${RESET}"
+    printf '    Each version has unique ports for Web UI and RDP access.\n'
+    printf '    Instances auto-allocate ports from 9000+ (web) and 4000+ (RDP).\n'
+    printf "    Run '%s list' to see port mappings.\n" "${SCRIPT_NAME}"
+    printf '\n'
+    printf '%b\n' "${BOLD}ARM64 SUPPORT${RESET}"
+    printf '    Auto-detected via uname. Only Win 10/11 variants supported on ARM64.\n'
+    printf '    Set WINDOWS_IMAGE=dockurr/windows-arm in .env.modern or .env.legacy.\n'
+    printf "    Run '%s check' to see detected architecture.\n" "${SCRIPT_NAME}"
+    printf '\n'
+}
+
+_help_topic_instances() {
+    printf '%b\n' "${BOLD}INSTANCE FLAGS (used with start)${RESET}"
+    printf '\n'
+    _help_row "--new"          "Create a new instance of a version"
+    _help_row "--new [name]"   "Name the instance (default: auto-numbered)"
+    _help_row "--clone"        "Clone data from base version to new instance"
+    printf '\n'
+    printf '%b\n' "${BOLD}INSTANCE EXAMPLES${RESET}"
+    printf '\n'
+    printf '    %s start winxp --new              # Create winxp-1 with auto ports\n' "${SCRIPT_NAME}"
+    printf '    %s start winxp --new lab          # Create winxp-lab\n' "${SCRIPT_NAME}"
+    printf '    %s start winxp --new lab --clone  # Clone base data\n' "${SCRIPT_NAME}"
+    printf '    %s stop winxp-lab                 # Stop instance\n' "${SCRIPT_NAME}"
+    printf '    %s instances                      # List all instances\n' "${SCRIPT_NAME}"
+    printf '    %s destroy winxp-lab              # Remove instance\n' "${SCRIPT_NAME}"
+    printf '\n'
+}
+
+_help_topic_cache() {
+    printf '%b\n' "${BOLD}CACHE COMMANDS${RESET}"
+    printf '\n'
+    _help_row "cache save <version>"    "Cache ISOs from a VM data directory"
+    _help_row "cache list"              "Show all cached ISOs with sizes"
+    _help_row "cache rm <version>"      "Remove cached ISOs for a version"
+    _help_row "cache flush"             "Clear all cached ISOs"
+    printf '\n'
+    printf '%b\n' "${BOLD}CACHE EXAMPLES${RESET}"
+    printf '\n'
+    printf '    %s cache save winxp        # Cache ISO after first download\n' "${SCRIPT_NAME}"
+    printf '    %s cache list              # Show cached ISOs\n' "${SCRIPT_NAME}"
+    printf '    %s cache rm winxp          # Remove cached winxp ISO\n' "${SCRIPT_NAME}"
+    printf '    %s cache flush             # Clear all cached ISOs\n' "${SCRIPT_NAME}"
+    printf '\n'
+    printf '%b\n' "${BOLD}AUTO-CACHE${RESET}"
+    printf '\n'
+    printf '    Set AUTO_CACHE=Y in .env to automatically cache ISOs on stop.\n'
+    printf '    Cached ISOs are auto-restored when creating new instances with --new.\n'
+    printf '\n'
+}
+
+_help_topic_examples() {
     printf '%b\n' "${BOLD}EXAMPLES${RESET}"
+    printf '\n'
     printf '    %s start                   # Interactive menu\n' "${SCRIPT_NAME}"
     printf '    %s start win11             # Start Windows 11\n' "${SCRIPT_NAME}"
     printf '    %s start win11 win10       # Start multiple\n' "${SCRIPT_NAME}"
@@ -2844,29 +3067,62 @@ show_usage() {
     printf '    %s clean                   # Remove stopped containers\n' "${SCRIPT_NAME}"
     printf '\n'
     printf '%b\n' "${BOLD}INSTANCE EXAMPLES${RESET}"
-    printf '    %s start winxp --new       # Create winxp-1 with auto ports\n' "${SCRIPT_NAME}"
-    printf '    %s start winxp --new lab   # Create winxp-lab\n' "${SCRIPT_NAME}"
+    printf '\n'
+    printf '    %s start winxp --new              # Create winxp-1 with auto ports\n' "${SCRIPT_NAME}"
+    printf '    %s start winxp --new lab          # Create winxp-lab\n' "${SCRIPT_NAME}"
     printf '    %s start winxp --new lab --clone  # Clone base data\n' "${SCRIPT_NAME}"
-    printf '    %s stop winxp-lab          # Stop instance\n' "${SCRIPT_NAME}"
-    printf '    %s instances               # List all instances\n' "${SCRIPT_NAME}"
-    printf '    %s destroy winxp-lab       # Remove instance\n' "${SCRIPT_NAME}"
+    printf '    %s stop winxp-lab                 # Stop instance\n' "${SCRIPT_NAME}"
+    printf '    %s instances                      # List all instances\n' "${SCRIPT_NAME}"
+    printf '    %s destroy winxp-lab              # Remove instance\n' "${SCRIPT_NAME}"
     printf '\n'
     printf '%b\n' "${BOLD}CACHE EXAMPLES${RESET}"
+    printf '\n'
     printf '    %s cache save winxp        # Cache ISO after first download\n' "${SCRIPT_NAME}"
     printf '    %s cache list              # Show cached ISOs\n' "${SCRIPT_NAME}"
     printf '    %s cache rm winxp          # Remove cached winxp ISO\n' "${SCRIPT_NAME}"
     printf '    %s cache flush             # Clear all cached ISOs\n' "${SCRIPT_NAME}"
     printf '\n'
-    printf '%b\n' "${BOLD}PORTS${RESET}"
-    printf '    Each version has unique ports for Web UI and RDP access.\n'
-    printf '    Instances auto-allocate ports from 9000+ (web) and 4000+ (RDP).\n'
-    printf "    Run '%s list' to see port mappings.\n" "${SCRIPT_NAME}"
+}
+
+_help_topic_config() {
+    printf '%b\n' "${BOLD}CONFIGURATION${RESET}"
     printf '\n'
-    printf '%b\n' "${BOLD}ARM64 SUPPORT${RESET}"
-    printf '    Auto-detected via uname. Only Win 10/11 variants supported on ARM64.\n'
-    printf '    Set WINDOWS_IMAGE=dockurr/windows-arm in .env.modern or .env.legacy.\n'
-    printf "    Run '%s check' to see detected architecture.\n" "${SCRIPT_NAME}"
+    printf '  Two env files control per-VM resources (used by compose files):\n'
     printf '\n'
+    _help_row ".env.modern"    "8G RAM, 4 CPU, 128G disk — Win 10/11, Server 2016+"
+    _help_row ".env.legacy"    "2G RAM, 2 CPU, 32G disk — Win 7/8, Vista, XP, 2000, Tiny"
+    printf '\n'
+    printf '  Global winctl settings (in .env):\n'
+    printf '\n'
+    _help_row "AUTO_CACHE=Y|N"  "Auto-cache ISOs on stop (default: N)"
+    printf '\n'
+    printf '%b\n' "${BOLD}VM SETTINGS (in .env.modern / .env.legacy)${RESET}"
+    printf '\n'
+    _help_row "RAM_SIZE"        "Memory allocation (e.g. 8G)"
+    _help_row "CPU_CORES"       "CPU cores (e.g. 4)"
+    _help_row "DISK_SIZE"       "Virtual disk size (e.g. 128G)"
+    _help_row "USERNAME"        "Windows username (default: Docker)"
+    _help_row "PASSWORD"        "Windows password (default: admin)"
+    _help_row "LANGUAGE"        "Installation language (default: en)"
+    _help_row "REGION"          "Region setting (default: en-US)"
+    _help_row "KEYBOARD"        "Keyboard layout (default: en-US)"
+    _help_row "WIDTH"           "Display width (default: 1280)"
+    _help_row "HEIGHT"          "Display height (default: 720)"
+    _help_row "DHCP"            "Use DHCP networking (default: N)"
+    _help_row "SAMBA"           "Enable file sharing (default: Y)"
+    _help_row "RESTART_POLICY"  "Container restart policy (default: on-failure)"
+    _help_row "DEBUG"           "Debug mode (default: N)"
+    _help_row "WINDOWS_IMAGE"   "Docker image (default: dockurr/windows)"
+    printf '\n'
+}
+
+_help_all() {
+    _help_summary
+    _help_topic_commands
+    _help_topic_instances
+    _help_topic_cache
+    _help_topic_examples
+    _help_topic_config
 }
 
 # ==============================================================================
@@ -2905,7 +3161,7 @@ main() {
         instances)  cmd_instances "$@" ;;
         cache)      cmd_cache "$@" ;;
         help|--help|-h)
-            show_usage
+            show_usage "$@"
             ;;
         "")
             show_usage

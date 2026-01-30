@@ -702,21 +702,29 @@ Windows ISOs are large (3-6 GB) and re-downloaded every time a new container is 
 
 ### How It Works
 
-1. Start a VM and wait for the ISO to download
-2. Cache the ISO: `./winctl.sh cache save winxp`
-3. Create new instances — cached ISOs are auto-restored: `./winctl.sh start winxp --new`
+1. Download the original ISO: `./winctl.sh cache download winxp`
+2. Create new instances — cached ISOs are auto-restored: `./winctl.sh start winxp --new`
 
-When creating a new instance with `--new`, winctl checks `cache/<version>/` for ISOs and metadata files, then copies them into the new instance's data directory before starting the container. The container recognizes the ISO as already processed and boots directly — no download or re-extraction needed.
+When creating a new instance with `--new`, winctl checks `cache/<version>/` for ISOs and copies them into the new instance's data directory before starting the container. The container finds the ISO locally and processes it (extracts, injects drivers, builds answer file) without needing to re-download.
 
-### Caching an ISO
+### Downloading an ISO
 
 ```bash
-# Cache ISOs from an existing VM's data directory
-./winctl.sh cache save winxp
-./winctl.sh cache save win11
+# Download original ISOs to the cache
+./winctl.sh cache download winxp
+./winctl.sh cache download win11
 ```
 
-The ISOs and metadata files (`windows.base`, `windows.ver`, `windows.mode`, `windows.type`, `windows.args`) are copied from `data/<name>/` to `cache/<base-version>/`.
+This uses the container's download logic to fetch the original, unprocessed ISO directly to the cache. This is the recommended way to populate the cache.
+
+### Saving from an Existing VM
+
+```bash
+# Cache unprocessed ISOs from a VM's data directory
+./winctl.sh cache save winxp
+```
+
+> **Note:** After a VM completes its first boot, the container rebuilds the ISO with injected drivers. These rebuilt ISOs are automatically skipped by `cache save` because they cannot be re-processed. Use `cache download` instead.
 
 ### Listing Cached ISOs
 
@@ -743,11 +751,11 @@ Both commands require typing `yes` to confirm.
 When creating a new instance with `--new` (without `--clone`), winctl automatically checks the cache:
 
 ```bash
-# If cache/winxp/ has ISOs + metadata, they are copied to data/winxp-1/ before start
+# If cache/winxp/ has an ISO, it is copied to data/winxp-1/ before start
 ./winctl.sh start winxp --new
 ```
 
-Both the ISO and metadata files are restored so the container recognizes the ISO as already processed. This is skipped when using `--clone`, since cloning copies all data from the base version including any ISOs.
+The original ISO is copied as-is. The container processes it locally (extract, inject drivers, build answer file) without needing to re-download. This is skipped when using `--clone`, since cloning copies all data from the base version including any ISOs.
 
 ### Auto-Cache on Stop
 
@@ -758,28 +766,21 @@ To automatically cache ISOs whenever a container is stopped, add `AUTO_CACHE=Y` 
 AUTO_CACHE=Y
 ```
 
-When enabled, `winctl.sh stop` will silently cache any ISOs found in the stopped container's data directory. ISOs that are already cached are skipped. This removes the need to manually run `cache save` after the first download.
+When enabled, `winctl.sh stop` will silently cache any unprocessed ISOs found in the stopped container's data directory. Rebuilt ISOs (from the container's install pipeline) and already-cached ISOs are skipped.
 
 ### Cache Directory Structure
 
 ```
 cache/
 ├── winxp/
-│   ├── winxpx86.iso
-│   ├── windows.base
-│   ├── windows.ver
-│   ├── windows.mode
-│   ├── windows.type
-│   └── windows.args
+│   └── winxpx86.iso
 ├── win11/
-│   ├── win11x64.iso
-│   └── ...
+│   └── win11x64.iso
 └── win10/
-    ├── win10x64.iso
-    └── ...
+    └── win10x64.iso
 ```
 
-> **Note:** The cache stores processed ISOs and their metadata from the container's data directory, not raw downloads. Metadata files tell the container the ISO is already processed, so it boots directly without re-extracting or re-downloading.
+> **Note:** The cache must contain original (unprocessed) ISOs. Use `cache download` to populate it. Rebuilt ISOs from `data/` directories are skipped by `cache save` because the container cannot re-extract them.
 
 ---
 

@@ -130,11 +130,11 @@ Use `winctl.sh` for easy container management:
 ./winctl.sh destroy winxp-lab          # Remove instance
 
 # ISO cache (skip re-downloads for new instances)
-./winctl.sh cache save winxp           # Cache ISO after first download
+./winctl.sh cache download winxp       # Download original ISO to cache
 ./winctl.sh cache list                 # Show cached ISOs
+./winctl.sh start winxp --new          # New instance uses cached ISO
 ./winctl.sh cache rm winxp             # Remove cached winxp ISO
 ./winctl.sh cache flush                # Clear all cached ISOs
-# Or set AUTO_CACHE=Y in .env to cache ISOs automatically on stop
 
 # Full help (includes ARM64 info)
 ./winctl.sh help

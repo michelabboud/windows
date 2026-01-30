@@ -1092,17 +1092,10 @@ cmd_start() {
                 local cached_iso
                 cached_iso=$(find "$cache_src" -maxdepth 1 -name '*.iso' -type f -print -quit 2>/dev/null || true)
                 if [[ -n "$cached_iso" ]]; then
-                    # Keep original filename — the container's parseVersion
-                    # determines the expected name (e.g. winxpx86.iso, not xp.iso)
                     local iso_name
                     iso_name=$(basename "$cached_iso")
                     info "Restoring cached ISO: $iso_name..."
                     cp "$cached_iso" "$data_dir/$iso_name"
-                    # Restore metadata so the container recognizes the ISO as processed
-                    local _meta
-                    for _meta in windows.base windows.ver windows.mode windows.type windows.args; do
-                        [[ -f "$cache_src/$_meta" ]] && cp "$cache_src/$_meta" "$data_dir/$_meta"
-                    done
                     success "ISO restored from cache (skipping download)"
                 fi
             fi
@@ -2397,17 +2390,10 @@ cmd_new() {
             local cached_iso
             cached_iso=$(find "$cache_src" -maxdepth 1 -name '*.iso' -type f -print -quit 2>/dev/null || true)
             if [[ -n "$cached_iso" ]]; then
-                # Keep original filename — the container's parseVersion
-                # determines the expected name (e.g. winxpx86.iso, not xp.iso)
                 local iso_name
                 iso_name=$(basename "$cached_iso")
                 info "Restoring cached ISO: $iso_name..."
                 cp "$cached_iso" "$data_dir/$iso_name"
-                # Restore metadata so the container recognizes the ISO as processed
-                local _meta
-                for _meta in windows.base windows.ver windows.mode windows.type windows.args; do
-                    [[ -f "$cache_src/$_meta" ]] && cp "$cache_src/$_meta" "$data_dir/$_meta"
-                done
                 success "ISO restored from cache (skipping download)"
             fi
         fi
@@ -2597,7 +2583,17 @@ cmd_instances() {
 # ISO CACHE
 # ==============================================================================
 
-# Non-interactive cache save — silently skips if no ISOs or already cached.
+# Check if an ISO has been rebuilt by the container (magic byte 0x16 at offset 0).
+# Rebuilt ISOs cannot be re-processed by the container's install pipeline (7z
+# fails on the duplicate boot catalog entry created by genisoimage).
+_is_rebuilt_iso() {
+    local iso="$1"
+    local magic
+    magic=$(dd if="$iso" bs=1 count=1 status=none 2>/dev/null | od -A n -t x1 -v | tr -d ' \n')
+    [[ "$magic" == "16" ]]
+}
+
+# Non-interactive cache save — silently skips rebuilt ISOs and already-cached files.
 # Used by cmd_stop() when AUTO_CACHE=Y.
 auto_cache_save() {
     local target="$1"
@@ -2614,19 +2610,13 @@ auto_cache_save() {
     while IFS= read -r iso; do
         local filename
         filename=$(basename "$iso")
+        # Skip rebuilt ISOs — they can't be re-processed by the container
+        _is_rebuilt_iso "$iso" && continue
         if [[ ! -f "$cache_dest/$filename" ]]; then
             cp "$iso" "$cache_dest/$filename"
             info "Auto-cached ISO: $filename"
         fi
     done <<< "$iso_files"
-
-    # Cache metadata files so the container recognizes the ISO as processed
-    local meta
-    for meta in windows.base windows.ver windows.mode windows.type windows.args; do
-        if [[ -f "$data_dir/$meta" ]] && [[ ! -f "$cache_dest/$meta" ]]; then
-            cp "$data_dir/$meta" "$cache_dest/$meta"
-        fi
-    done
 }
 
 cmd_cache() {
@@ -2634,18 +2624,19 @@ cmd_cache() {
     shift || true
 
     case "$subcmd" in
-        save)   cmd_cache_save "$@" ;;
-        list)   cmd_cache_list ;;
-        rm)     cmd_cache_rm "$@" ;;
-        flush)  cmd_cache_flush ;;
+        save)     cmd_cache_save "$@" ;;
+        download) cmd_cache_download "$@" ;;
+        list)     cmd_cache_list ;;
+        rm)       cmd_cache_rm "$@" ;;
+        flush)    cmd_cache_flush ;;
         "")
             error "Missing subcommand"
-            printf '%s\n' "  Usage: ${SCRIPT_NAME} cache <save|list|rm|flush>"
+            printf '%s\n' "  Usage: ${SCRIPT_NAME} cache <save|download|list|rm|flush>"
             exit 1
             ;;
         *)
             error "Unknown cache subcommand: $subcmd"
-            printf '%s\n' "  Usage: ${SCRIPT_NAME} cache <save|list|rm|flush>"
+            printf '%s\n' "  Usage: ${SCRIPT_NAME} cache <save|download|list|rm|flush>"
             exit 1
             ;;
     esac
@@ -2681,9 +2672,15 @@ cmd_cache_save() {
     header "Cache Save: ${RESOLVED_DISPLAY_NAME}"
 
     local count=0
+    local rebuilt=false
     while IFS= read -r iso; do
         local filename
         filename=$(basename "$iso")
+        if _is_rebuilt_iso "$iso"; then
+            warn "Skipping $filename — rebuilt ISO (cannot be re-processed)"
+            rebuilt=true
+            continue
+        fi
         if [[ -f "$cache_dest/$filename" ]]; then
             info "Already cached: $filename"
         else
@@ -2697,16 +2694,144 @@ cmd_cache_save() {
         ((count++))
     done <<< "$iso_files"
 
-    # Cache metadata files so the container recognizes the ISO as processed
-    local meta
-    for meta in windows.base windows.ver windows.mode windows.type windows.args; do
-        if [[ -f "$data_dir/$meta" ]] && [[ ! -f "$cache_dest/$meta" ]]; then
-            cp "$data_dir/$meta" "$cache_dest/$meta"
-        fi
-    done
+    printf '\n'
+    if (( count > 0 )); then
+        success "Cached $count ISO file(s) to cache/$RESOLVED_BASE/"
+    fi
+    if [[ "$rebuilt" == true ]]; then
+        warn "Some ISOs were skipped because they were rebuilt by the container."
+        info "Use '${SCRIPT_NAME} cache download $RESOLVED_BASE' to download the original ISO."
+    fi
+    printf '\n'
+}
+
+cmd_cache_download() {
+    local target="${1:-}"
+    if [[ -z "$target" ]]; then
+        error "Missing version"
+        printf '%s\n' "  Usage: ${SCRIPT_NAME} cache download <version>"
+        exit 1
+    fi
+
+    # Resolve the base version name
+    local base="$target"
+    if [[ -v VERSION_ENV_VALUES[$target] ]]; then
+        base="$target"
+    else
+        # Try to find a matching version key
+        local found=""
+        for k in "${!VERSION_DISPLAY_NAMES[@]}"; do
+            if [[ "$k" == "$target" ]]; then
+                found="$k"
+                break
+            fi
+        done
+        [[ -n "$found" ]] && base="$found"
+    fi
+
+    # Use the container to resolve the download URL and filename
+    local windows_image
+    local resource_type="${VERSION_RESOURCE_TYPE[$base]:-modern}"
+    if [[ "$resource_type" == "legacy" ]]; then
+        windows_image=$(grep -E '^WINDOWS_IMAGE=' "$SCRIPT_DIR/.env.legacy" 2>/dev/null | tail -1 | cut -d'=' -f2- || true)
+    else
+        windows_image=$(grep -E '^WINDOWS_IMAGE=' "$SCRIPT_DIR/.env.modern" 2>/dev/null | tail -1 | cut -d'=' -f2- || true)
+    fi
+    windows_image="${windows_image:-dockurr/windows}"
+
+    local version_env="${VERSION_ENV_VALUES[$base]:-$base}"
+
+    header "Cache Download: ${VERSION_DISPLAY_NAMES[$base]:-$base}"
+
+    info "Resolving download URL..."
+    local iso_filename
+    iso_filename=$(docker run --rm --entrypoint="" -e "VERSION=$version_env" "$windows_image" bash -c '
+        set +eu
+        APP="Windows"
+        source /run/utils.sh 2>/dev/null
+        source /run/define.sh 2>/dev/null
+        parseVersion 2>/dev/null
+        echo "${VERSION//\//}.iso"
+    ' 2>/dev/null || true)
+
+    if [[ -z "$iso_filename" ]]; then
+        error "Could not resolve ISO filename for $base"
+        exit 1
+    fi
+
+    local cache_dest="$ISO_CACHE_DIR/$base"
+    mkdir -p "$cache_dest"
+
+    if [[ -f "$cache_dest/$iso_filename" ]] && ! _is_rebuilt_iso "$cache_dest/$iso_filename"; then
+        info "Already cached: $iso_filename"
+        local size
+        size=$(du -h "$cache_dest/$iso_filename" | awk '{print $1}')
+        printf '%s\n' "    Size: $size"
+        printf '\n'
+        return 0
+    fi
+
+    # Run the container briefly to download the ISO, then copy from its tmp dir
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+
+    info "Downloading original ISO (this may take a while)..."
+    info "Using container to download ${VERSION_DISPLAY_NAMES[$base]:-$base}..."
+
+    # Run container with storage mounted, let it download, then grab from tmp
+    # The container downloads to /storage/tmp/<filename>.iso, so we watch for it
+    local container_name="winctl-download-$$"
+    docker run -d --rm --entrypoint="" \
+        --name "$container_name" \
+        -e "VERSION=$version_env" \
+        -v "$tmp_dir:/storage" \
+        "$windows_image" bash -c '
+            set +eu
+            APP="Windows"
+            STORAGE="/storage"
+            source /run/utils.sh 2>/dev/null
+            source /run/define.sh 2>/dev/null
+            source /run/mido.sh 2>/dev/null
+            source /run/install.sh 2>/dev/null
+            parseVersion 2>/dev/null
+            BOOT="$STORAGE/${VERSION//\//}.iso"
+            TMP="$STORAGE/tmp"
+            mkdir -p "$TMP"
+            ISO=$(basename "$BOOT")
+            ISO="$TMP/$ISO"
+            if [ -f "$BOOT" ] && [ -s "$BOOT" ]; then
+                mv -f "$BOOT" "$ISO"
+            fi
+            if [ ! -s "$ISO" ] || [ ! -f "$ISO" ]; then
+                downloadImage "$ISO" "$VERSION" "en" || exit 1
+            fi
+            # Signal completion — move ISO out of tmp to storage root
+            cp "$ISO" "$BOOT"
+        ' > /dev/null 2>&1
+
+    # Wait for the download container to finish
+    docker wait "$container_name" > /dev/null 2>&1
+
+    # Check if the ISO was downloaded
+    local downloaded_iso
+    downloaded_iso=$(find "$tmp_dir" -maxdepth 1 -name '*.iso' -type f -print -quit 2>/dev/null || true)
+
+    if [[ -z "$downloaded_iso" ]] || [[ ! -s "$downloaded_iso" ]]; then
+        rm -rf "$tmp_dir"
+        error "Failed to download ISO for $base"
+        exit 1
+    fi
+
+    local dl_name
+    dl_name=$(basename "$downloaded_iso")
+    cp "$downloaded_iso" "$cache_dest/$dl_name"
+    rm -rf "$tmp_dir"
+
+    local size
+    size=$(du -h "$cache_dest/$dl_name" | awk '{print $1}')
 
     printf '\n'
-    success "Cached $count ISO file(s) to cache/$RESOLVED_BASE/"
+    success "Downloaded and cached: $dl_name ($size)"
     printf '\n'
 }
 
@@ -2905,7 +3030,7 @@ _help_summary() {
     _help_row "clean [--data]"          "Remove stopped containers"
     _help_row "destroy <instance>"      "Permanently remove an instance"
     _help_row "instances [base]"        "List all registered instances"
-    _help_row "cache <sub>"             "Manage ISO cache (save/list/rm/flush)"
+    _help_row "cache <sub>"             "Manage ISO cache (download/save/list/rm/flush)"
     _help_row "help [topic]"            "Show help (topics below, or 'all')"
     printf '\n'
     printf '%b\n' "${BOLD}QUICK START${RESET}"
@@ -2985,7 +3110,7 @@ _help_topic_commands() {
     _help_row "clean [--data]"          "Remove stopped containers"
     _help_row "destroy <instance>"      "Permanently remove an instance"
     _help_row "instances [base]"        "List all registered instances"
-    _help_row "cache <sub>"             "Manage ISO cache (save/list/rm/flush)"
+    _help_row "cache <sub>"             "Manage ISO cache (download/save/list/rm/flush)"
     _help_row "help [topic]"            "Show help (topics: commands, instances, cache, examples, config, all)"
     printf '\n'
     printf '%b\n' "${BOLD}CATEGORIES${RESET}"
@@ -3027,22 +3152,29 @@ _help_topic_instances() {
 _help_topic_cache() {
     printf '%b\n' "${BOLD}CACHE COMMANDS${RESET}"
     printf '\n'
-    _help_row "cache save <version>"    "Cache ISOs from a VM data directory"
-    _help_row "cache list"              "Show all cached ISOs with sizes"
-    _help_row "cache rm <version>"      "Remove cached ISOs for a version"
-    _help_row "cache flush"             "Clear all cached ISOs"
+    _help_row "cache download <version>" "Download original ISO to cache"
+    _help_row "cache save <version>"     "Cache ISOs from a VM data directory"
+    _help_row "cache list"               "Show all cached ISOs with sizes"
+    _help_row "cache rm <version>"       "Remove cached ISOs for a version"
+    _help_row "cache flush"              "Clear all cached ISOs"
     printf '\n'
     printf '%b\n' "${BOLD}CACHE EXAMPLES${RESET}"
     printf '\n'
-    printf '    %s cache save winxp        # Cache ISO after first download\n' "${SCRIPT_NAME}"
+    printf '    %s cache download winxp    # Download original XP ISO to cache\n' "${SCRIPT_NAME}"
     printf '    %s cache list              # Show cached ISOs\n' "${SCRIPT_NAME}"
+    printf '    %s start winxp --new       # New instance uses cached ISO\n' "${SCRIPT_NAME}"
     printf '    %s cache rm winxp          # Remove cached winxp ISO\n' "${SCRIPT_NAME}"
     printf '    %s cache flush             # Clear all cached ISOs\n' "${SCRIPT_NAME}"
     printf '\n'
-    printf '%b\n' "${BOLD}AUTO-CACHE${RESET}"
+    printf '%b\n' "${BOLD}HOW IT WORKS${RESET}"
     printf '\n'
-    printf '    Set AUTO_CACHE=Y in .env to automatically cache ISOs on stop.\n'
-    printf '    Cached ISOs are auto-restored when creating new instances with --new.\n'
+    printf '    The cache stores original (unprocessed) ISOs. When creating a new\n'
+    printf '    instance, the cached ISO is copied to the data directory. The container\n'
+    printf '    processes it locally (extract, inject drivers, answer file) without\n'
+    printf '    needing to re-download.\n'
+    printf '\n'
+    printf '    Use "cache download" to pre-download ISOs. "cache save" only works\n'
+    printf '    if the data directory has an unprocessed ISO (skips rebuilt ones).\n'
     printf '\n'
 }
 

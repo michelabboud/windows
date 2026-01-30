@@ -141,6 +141,41 @@ declare -A VERSION_RESOURCE_TYPE=(
     ["tiny11"]="legacy" ["tiny10"]="legacy"
 )
 
+# VERSION env values (maps base version to compose VERSION environment variable)
+declare -A VERSION_ENV_VALUES=(
+    ["win11"]="11"     ["win11e"]="11e"   ["win11l"]="11l"
+    ["win10"]="10"     ["win10e"]="10e"   ["win10l"]="10l"
+    ["win81"]="8"      ["win81e"]="8e"
+    ["win7"]="7u"      ["win7e"]="7e"
+    ["vista"]="vu"     ["winxp"]="xp"     ["win2k"]="2k"
+    ["win2025"]="2025" ["win2022"]="2022" ["win2019"]="2019" ["win2016"]="2016"
+    ["win2012"]="2012" ["win2008"]="2008" ["win2003"]="2003"
+    ["tiny11"]="tiny11" ["tiny10"]="tiny10"
+)
+
+# VERSION env files (maps base version to env file path)
+declare -A VERSION_ENV_FILES=(
+    ["win11"]=".env.modern"   ["win11e"]=".env.modern"  ["win11l"]=".env.modern"
+    ["win10"]=".env.modern"   ["win10e"]=".env.modern"  ["win10l"]=".env.modern"
+    ["win81"]=".env.legacy"   ["win81e"]=".env.legacy"
+    ["win7"]=".env.legacy"    ["win7e"]=".env.legacy"
+    ["vista"]=".env.legacy"   ["winxp"]=".env.legacy"   ["win2k"]=".env.legacy"
+    ["win2025"]=".env.modern" ["win2022"]=".env.modern"
+    ["win2019"]=".env.modern" ["win2016"]=".env.modern"
+    ["win2012"]=".env.legacy" ["win2008"]=".env.legacy" ["win2003"]=".env.legacy"
+    ["tiny11"]=".env.legacy"  ["tiny10"]=".env.legacy"
+)
+
+# Instance constants
+readonly INSTANCE_DIR="${SCRIPT_DIR}/instances"
+
+# ISO cache directory
+readonly ISO_CACHE_DIR="${SCRIPT_DIR}/cache"
+readonly INSTANCE_REGISTRY="${INSTANCE_DIR}/registry.json"
+readonly INSTANCE_WEB_PORT_BASE=9000
+readonly INSTANCE_RDP_PORT_BASE=4000
+readonly INSTANCE_PORT_RANGE=999
+
 # Resource requirements
 readonly MODERN_RAM_GB=8
 readonly MODERN_DISK_GB=128
@@ -232,6 +267,21 @@ is_arm_supported() {
         fi
     done
     return 1
+}
+
+# ==============================================================================
+# LAN IP DETECTION
+# ==============================================================================
+
+LAN_IP=""
+
+detect_lan_ip() {
+    if [[ -n "$LAN_IP" ]]; then return; fi
+    # Try hostname -I first (Linux), then ipconfig getifaddr (macOS)
+    LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+    if [[ -z "$LAN_IP" ]]; then
+        LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || true)
+    fi
 }
 
 # ==============================================================================
@@ -540,17 +590,240 @@ get_status() {
     fi
 }
 
-# Get compose file path for version
+# ==============================================================================
+# INSTANCE REGISTRY (JSON file-based)
+# ==============================================================================
+
+# In-memory registry: _REGISTRY_INSTANCES["name"]="base|suffix|web_port|rdp_port|created"
+declare -A _REGISTRY_INSTANCES=()
+_REGISTRY_LOADED=false
+
+# Ensure instance directory exists
+ensure_instance_dir() {
+    [[ -d "$INSTANCE_DIR" ]] || mkdir -p "$INSTANCE_DIR"
+}
+
+# Load registry from JSON file into memory
+load_registry() {
+    if [[ "$_REGISTRY_LOADED" == "true" ]]; then
+        return 0
+    fi
+
+    _REGISTRY_INSTANCES=()
+
+    if [[ ! -f "$INSTANCE_REGISTRY" ]]; then
+        _REGISTRY_LOADED=true
+        return 0
+    fi
+
+    local current_name="" current_base="" current_suffix=""
+    local current_web="" current_rdp="" current_created=""
+    local in_instances=false in_entry=false
+
+    while IFS= read -r line; do
+        if [[ "$line" =~ \"instances\" ]]; then
+            in_instances=true
+            continue
+        fi
+        if [[ "$in_instances" == "true" && "$in_entry" == "false" ]]; then
+            # Look for entry key like "winxp-lab": {
+            if [[ "$line" =~ \"([^\"]+)\":[[:space:]]*\{ ]]; then
+                current_name="${BASH_REMATCH[1]}"
+                in_entry=true
+                current_base="" current_suffix="" current_web="" current_rdp="" current_created=""
+                continue
+            fi
+        fi
+        if [[ "$in_entry" == "true" ]]; then
+            if [[ "$line" =~ \"base\":[[:space:]]*\"([^\"]+)\" ]]; then
+                current_base="${BASH_REMATCH[1]}"
+            elif [[ "$line" =~ \"suffix\":[[:space:]]*\"([^\"]+)\" ]]; then
+                current_suffix="${BASH_REMATCH[1]}"
+            elif [[ "$line" =~ \"web_port\":[[:space:]]*([0-9]+) ]]; then
+                current_web="${BASH_REMATCH[1]}"
+            elif [[ "$line" =~ \"rdp_port\":[[:space:]]*([0-9]+) ]]; then
+                current_rdp="${BASH_REMATCH[1]}"
+            elif [[ "$line" =~ \"created\":[[:space:]]*\"([^\"]+)\" ]]; then
+                current_created="${BASH_REMATCH[1]}"
+            fi
+            # End of entry
+            if [[ "$line" =~ \} ]]; then
+                if [[ -n "$current_name" ]]; then
+                    _REGISTRY_INSTANCES["$current_name"]="${current_base}|${current_suffix}|${current_web}|${current_rdp}|${current_created}"
+                fi
+                in_entry=false
+                current_name=""
+            fi
+        fi
+    done < "$INSTANCE_REGISTRY"
+
+    _REGISTRY_LOADED=true
+}
+
+# Write in-memory registry to JSON file (atomic: write to .tmp then mv)
+write_registry() {
+    ensure_instance_dir
+
+    local tmp_file="${INSTANCE_REGISTRY}.tmp"
+    {
+        echo "{"
+        echo "  \"version\": 1,"
+        echo "  \"instances\": {"
+        local first=true
+        for name in "${!_REGISTRY_INSTANCES[@]}"; do
+            local entry="${_REGISTRY_INSTANCES[$name]}"
+            local base suffix web_port rdp_port created
+            IFS='|' read -r base suffix web_port rdp_port created <<< "$entry"
+
+            if [[ "$first" == "true" ]]; then
+                first=false
+            else
+                echo ","
+            fi
+            printf '    "%s": {\n' "$name"
+            printf '      "base": "%s",\n' "$base"
+            printf '      "suffix": "%s",\n' "$suffix"
+            printf '      "web_port": %s,\n' "$web_port"
+            printf '      "rdp_port": %s,\n' "$rdp_port"
+            printf '      "created": "%s"\n' "$created"
+            printf '    }'
+        done
+        echo ""
+        echo "  }"
+        echo "}"
+    } > "$tmp_file"
+    mv "$tmp_file" "$INSTANCE_REGISTRY"
+}
+
+# Register a new instance
+register_instance() {
+    local name="$1" base="$2" suffix="$3" web_port="$4" rdp_port="$5"
+    local created
+    created=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    _REGISTRY_INSTANCES["$name"]="${base}|${suffix}|${web_port}|${rdp_port}|${created}"
+    write_registry
+}
+
+# Unregister an instance
+unregister_instance() {
+    local name="$1"
+    unset '_REGISTRY_INSTANCES['"$name"']'
+    write_registry
+}
+
+# Get a field from a registry entry
+# Fields: 1=base, 2=suffix, 3=web_port, 4=rdp_port, 5=created
+registry_get_field() {
+    local name="$1" field="$2"
+    local entry="${_REGISTRY_INSTANCES[$name]:-}"
+    if [[ -z "$entry" ]]; then
+        return 1
+    fi
+    local idx
+    case "$field" in
+        base)     idx=1 ;;
+        suffix)   idx=2 ;;
+        web_port) idx=3 ;;
+        rdp_port) idx=4 ;;
+        created)  idx=5 ;;
+        *) return 1 ;;
+    esac
+    echo "$entry" | cut -d'|' -f"$idx"
+}
+
+# Check if a name is a registered instance
+is_instance() {
+    local name="$1"
+    load_registry
+    [[ -n "${_REGISTRY_INSTANCES[$name]:-}" ]]
+}
+
+# ==============================================================================
+# DOCKER HELPERS (continued)
+# ==============================================================================
+
+# Get compose file path for version or instance
 get_compose_file() {
-    local version="$1"
-    local file="${VERSION_COMPOSE_FILES[$version]:-}"
+    local target="$1"
+
+    # Check if it's an instance first
+    if is_instance "$target"; then
+        echo "$INSTANCE_DIR/${target}.yml"
+        return 0
+    fi
+
+    local file="${VERSION_COMPOSE_FILES[$target]:-}"
     if [[ -z "$file" ]]; then
-        die "Unknown version: $version"
+        die "Unknown version or instance: $target"
     fi
     echo "$SCRIPT_DIR/$file"
 }
 
-# Validate version
+# ==============================================================================
+# RESOLUTION LAYER
+# ==============================================================================
+
+# Resolved target globals (set by resolve_target)
+RESOLVED_TYPE=""         # "base" or "instance"
+RESOLVED_NAME=""         # e.g. "win11" or "winxp-lab"
+RESOLVED_BASE=""         # base version, e.g. "winxp"
+RESOLVED_WEB_PORT=""
+RESOLVED_RDP_PORT=""
+RESOLVED_DISPLAY_NAME=""
+RESOLVED_COMPOSE=""
+
+# Resolve a target name to its type, ports, display name, and compose file
+resolve_target() {
+    local target="$1"
+
+    # Reset globals
+    RESOLVED_TYPE="" RESOLVED_NAME="" RESOLVED_BASE=""
+    RESOLVED_WEB_PORT="" RESOLVED_RDP_PORT=""
+    RESOLVED_DISPLAY_NAME="" RESOLVED_COMPOSE=""
+
+    # Check if it's a base version
+    if [[ -n "${VERSION_COMPOSE_FILES[$target]:-}" ]]; then
+        RESOLVED_TYPE="base"
+        RESOLVED_NAME="$target"
+        RESOLVED_BASE="$target"
+        RESOLVED_WEB_PORT="${VERSION_PORTS_WEB[$target]}"
+        RESOLVED_RDP_PORT="${VERSION_PORTS_RDP[$target]}"
+        RESOLVED_DISPLAY_NAME="${VERSION_DISPLAY_NAMES[$target]}"
+        RESOLVED_COMPOSE=$(get_compose_file "$target")
+        return 0
+    fi
+
+    # Check if it's a registered instance
+    load_registry
+    if [[ -n "${_REGISTRY_INSTANCES[$target]:-}" ]]; then
+        local base
+        base=$(registry_get_field "$target" "base")
+        RESOLVED_TYPE="instance"
+        RESOLVED_NAME="$target"
+        RESOLVED_BASE="$base"
+        RESOLVED_WEB_PORT=$(registry_get_field "$target" "web_port")
+        RESOLVED_RDP_PORT=$(registry_get_field "$target" "rdp_port")
+        RESOLVED_DISPLAY_NAME="${VERSION_DISPLAY_NAMES[$base]} ($target)"
+        RESOLVED_COMPOSE="$INSTANCE_DIR/${target}.yml"
+        return 0
+    fi
+
+    return 1
+}
+
+# Validate a target (base version or instance)
+validate_target() {
+    local target="$1"
+    if ! resolve_target "$target"; then
+        error "Unknown version or instance: $target"
+        echo "  Run '${SCRIPT_NAME} list' to see available versions"
+        echo "  Run '${SCRIPT_NAME} instances' to see instances"
+        return 1
+    fi
+    return 0
+}
+
+# Validate base version only (backward compat wrapper)
 validate_version() {
     local version="$1"
     if [[ -z "${VERSION_COMPOSE_FILES[$version]:-}" ]]; then
@@ -561,15 +834,19 @@ validate_version() {
     return 0
 }
 
-# Run compose command for a version
+# Run compose command for a version or instance
 run_compose() {
-    local version="$1"
+    local target="$1"
     shift
     local compose_file
-    compose_file=$(get_compose_file "$version")
+    compose_file=$(get_compose_file "$target")
 
     cd "$SCRIPT_DIR"
-    $(compose_cmd) -f "$compose_file" "$@"
+    if is_instance "$target"; then
+        $(compose_cmd) -p "$target" -f "$compose_file" "$@"
+    else
+        $(compose_cmd) -f "$compose_file" "$@"
+    fi
 }
 
 # ==============================================================================
@@ -711,7 +988,42 @@ interactive_select() {
 # ==============================================================================
 
 cmd_start() {
-    local versions=("$@")
+    local args=("$@")
+    local versions=()
+    local new_flag=false
+    local clone_flag=false
+    local instance_name=""
+
+    # Parse flags
+    local i=0
+    while ((i < ${#args[@]})); do
+        case "${args[$i]}" in
+            --new)
+                new_flag=true
+                # Next non-flag arg is optional instance name
+                if ((i + 1 < ${#args[@]})) && [[ "${args[$((i+1))]}" != --* ]]; then
+                    ((i++)) || true
+                    instance_name="${args[$i]}"
+                fi
+                ;;
+            --clone)
+                clone_flag=true
+                ;;
+            *)
+                versions+=("${args[$i]}")
+                ;;
+        esac
+        ((i++)) || true
+    done
+
+    # Route to cmd_new if --new flag is set
+    if [[ "$new_flag" == "true" ]]; then
+        if [[ ${#versions[@]} -ne 1 ]]; then
+            die "Usage: ${SCRIPT_NAME} start <version> --new [name] [--clone]"
+        fi
+        cmd_new "${versions[0]}" "$instance_name" "$clone_flag"
+        return
+    fi
 
     # Interactive selection if no versions specified
     if [[ ${#versions[@]} -eq 0 ]]; then
@@ -722,17 +1034,18 @@ cmd_start() {
         IFS=' ' read -ra versions <<< "$selected"
     fi
 
-    # Validate all versions first
+    # Validate all targets first
     for v in "${versions[@]}"; do
-        validate_version "$v" || exit 1
+        validate_target "$v" || exit 1
     done
 
-    # Check ARM compatibility
+    # Check ARM compatibility (only for base versions)
     detect_arch
     if [[ "$DETECTED_ARCH" == "arm64" ]]; then
         for v in "${versions[@]}"; do
-            if ! is_arm_supported "$v"; then
-                die "${VERSION_DISPLAY_NAMES[$v]} ($v) is not supported on ARM64. Supported: ${ARM_VERSIONS[*]}"
+            resolve_target "$v"
+            if ! is_arm_supported "$RESOLVED_BASE"; then
+                die "${RESOLVED_DISPLAY_NAME} is not supported on ARM64. Supported: ${ARM_VERSIONS[*]}"
             fi
         done
     fi
@@ -742,10 +1055,11 @@ cmd_start() {
     check_kvm || exit 1
 
     for v in "${versions[@]}"; do
-        header "Starting ${VERSION_DISPLAY_NAMES[$v]} ($v)"
+        resolve_target "$v"
+        header "Starting ${RESOLVED_DISPLAY_NAME} ($v)"
 
         # Check resources
-        local resource_type="${VERSION_RESOURCE_TYPE[$v]}"
+        local resource_type="${VERSION_RESOURCE_TYPE[$RESOLVED_BASE]}"
         if [[ "$resource_type" == "modern" ]]; then
             check_memory "$MODERN_RAM_GB" || true
             check_disk "$MODERN_DISK_GB" || true
@@ -761,6 +1075,16 @@ cmd_start() {
             mkdir -p "$data_dir"
         fi
 
+        # Check ports are available
+        if ! check_port "$RESOLVED_WEB_PORT"; then
+            error "Web port $RESOLVED_WEB_PORT is already in use"
+            continue
+        fi
+        if ! check_port "$RESOLVED_RDP_PORT"; then
+            error "RDP port $RESOLVED_RDP_PORT is already in use"
+            continue
+        fi
+
         if is_running "$v"; then
             info "$v is already running"
         else
@@ -774,10 +1098,15 @@ cmd_start() {
         fi
 
         # Show connection info
+        detect_lan_ip
         printf '\n'
         printf '%s\n' "  ${BOLD}Connection Details:${RESET}"
-        printf '%s\n' "    → Web Viewer: ${CYAN}http://localhost:${VERSION_PORTS_WEB[$v]}${RESET}"
-        printf '%s\n' "    → RDP:        ${CYAN}localhost:${VERSION_PORTS_RDP[$v]}${RESET}"
+        printf '%s\n' "    → Web Viewer: ${CYAN}http://localhost:${RESOLVED_WEB_PORT}${RESET}"
+        printf '%s\n' "    → RDP:        ${CYAN}localhost:${RESOLVED_RDP_PORT}${RESET}"
+        if [[ -n "$LAN_IP" ]]; then
+            printf '%s\n' "    → LAN Web:    ${CYAN}http://${LAN_IP}:${RESOLVED_WEB_PORT}${RESET}"
+            printf '%s\n' "    → LAN RDP:    ${CYAN}${LAN_IP}:${RESOLVED_RDP_PORT}${RESET}"
+        fi
         printf '\n'
     done
 
@@ -788,7 +1117,7 @@ cmd_start() {
 cmd_stop() {
     local versions=("$@")
 
-    # Stop all running containers
+    # Stop all running containers (base + instances)
     if [[ ${#versions[@]} -eq 1 && "${versions[0]}" == "all" ]]; then
         versions=()
         refresh_status_cache
@@ -797,6 +1126,15 @@ cmd_stop() {
             status=$(get_status "$v")
             if [[ "$status" == "running" ]]; then
                 versions+=("$v")
+            fi
+        done
+        # Also check instances
+        load_registry
+        for name in "${!_REGISTRY_INSTANCES[@]}"; do
+            local status
+            status=$(get_status "$name")
+            if [[ "$status" == "running" ]]; then
+                versions+=("$name")
             fi
         done
         if [[ ${#versions[@]} -eq 0 ]]; then
@@ -814,9 +1152,9 @@ cmd_stop() {
         IFS=' ' read -ra versions <<< "$selected"
     fi
 
-    # Validate all versions first
+    # Validate all targets first
     for v in "${versions[@]}"; do
-        validate_version "$v" || exit 1
+        validate_target "$v" || exit 1
     done
 
     # Show confirmation
@@ -824,13 +1162,14 @@ cmd_stop() {
     printf '\n'
     printf '%s\n' "  The following containers will be stopped:"
     for v in "${versions[@]}"; do
+        resolve_target "$v"
         local status
         if is_running "$v"; then
             status="${GREEN}running${RESET}"
         else
             status="${YELLOW}not running${RESET}"
         fi
-        printf '%s\n' "    • $v (${VERSION_DISPLAY_NAMES[$v]}) - $status"
+        printf '%s\n' "    • $v (${RESOLVED_DISPLAY_NAME}) - $status"
     done
     printf '\n'
     printf '%s' "  Continue? [y/N]: "
@@ -872,21 +1211,27 @@ cmd_restart() {
         IFS=' ' read -ra versions <<< "$selected"
     fi
 
-    # Validate all versions first
+    # Validate all targets first
     for v in "${versions[@]}"; do
-        validate_version "$v" || exit 1
+        validate_target "$v" || exit 1
     done
 
     for v in "${versions[@]}"; do
-        header "Restarting ${VERSION_DISPLAY_NAMES[$v]} ($v)"
+        resolve_target "$v"
+        header "Restarting ${RESOLVED_DISPLAY_NAME} ($v)"
 
         info "Restarting $v..."
         if run_compose "$v" restart "$v"; then
             success "$v restarted"
+            detect_lan_ip
             printf '\n'
             printf '%s\n' "  ${BOLD}Connection Details:${RESET}"
-            printf '%s\n' "    → Web Viewer: ${CYAN}http://localhost:${VERSION_PORTS_WEB[$v]}${RESET}"
-            printf '%s\n' "    → RDP:        ${CYAN}localhost:${VERSION_PORTS_RDP[$v]}${RESET}"
+            printf '%s\n' "    → Web Viewer: ${CYAN}http://localhost:${RESOLVED_WEB_PORT}${RESET}"
+            printf '%s\n' "    → RDP:        ${CYAN}localhost:${RESOLVED_RDP_PORT}${RESET}"
+            if [[ -n "$LAN_IP" ]]; then
+                printf '%s\n' "    → LAN Web:    ${CYAN}http://${LAN_IP}:${RESOLVED_WEB_PORT}${RESET}"
+                printf '%s\n' "    → LAN RDP:    ${CYAN}${LAN_IP}:${RESOLVED_RDP_PORT}${RESET}"
+            fi
             printf '\n'
         else
             error "Failed to restart $v"
@@ -908,15 +1253,40 @@ cmd_status() {
     table_header
 
     for v in "${versions[@]}"; do
-        if ! validate_version "$v" 2>/dev/null; then
-            continue
+        if validate_version "$v" 2>/dev/null; then
+            local status
+            status=$(get_status "$v")
+            table_row "$v" "${VERSION_DISPLAY_NAMES[$v]}" "$status" "${VERSION_PORTS_WEB[$v]}" "${VERSION_PORTS_RDP[$v]}"
+        elif validate_target "$v" 2>/dev/null; then
+            resolve_target "$v"
+            local status
+            status=$(get_status "$v")
+            table_row "$v" "$RESOLVED_DISPLAY_NAME" "$status" "$RESOLVED_WEB_PORT" "$RESOLVED_RDP_PORT"
         fi
-
-        local status
-        status=$(get_status "$v")
-        table_row "$v" "${VERSION_DISPLAY_NAMES[$v]}" "$status" "${VERSION_PORTS_WEB[$v]}" "${VERSION_PORTS_RDP[$v]}"
     done
+
+    # Show instances section if showing all
+    load_registry
+    if [[ ${#_REGISTRY_INSTANCES[@]} -gt 0 && ${#versions[@]} -eq ${#ALL_VERSIONS[@]} ]]; then
+        printf '\n'
+        printf "  %s%-12s %-26s %-10s %-8s %-8s%s\n" \
+            "${BOLD}${DIM}" "INSTANCE" "NAME" "STATUS" "WEB" "RDP" "${RESET}"
+        printf '%s\n' "  ${DIM}$(printf '─%.0s' {1..66})${RESET}"
+
+        for name in "${!_REGISTRY_INSTANCES[@]}"; do
+            resolve_target "$name"
+            local status
+            status=$(get_status "$name")
+            table_row "$name" "$RESOLVED_DISPLAY_NAME" "$status" "$RESOLVED_WEB_PORT" "$RESOLVED_RDP_PORT"
+        done
+    fi
     printf '\n'
+
+    detect_lan_ip
+    if [[ -n "$LAN_IP" ]]; then
+        printf '%s\n' "  ${DIM}LAN IP: ${LAN_IP} — use http://${LAN_IP}:<web-port> for remote access${RESET}"
+        printf '\n'
+    fi
 }
 
 cmd_logs() {
@@ -924,10 +1294,10 @@ cmd_logs() {
     local follow="${2:-}"
 
     if [[ -z "$version" ]]; then
-        die "Usage: ${SCRIPT_NAME} logs <version> [-f]"
+        die "Usage: ${SCRIPT_NAME} logs <version|instance> [-f]"
     fi
 
-    validate_version "$version" || exit 1
+    validate_target "$version" || exit 1
 
     local args=()
     if [[ "$follow" == "-f" ]]; then
@@ -942,10 +1312,10 @@ cmd_shell() {
     local version="${1:-}"
 
     if [[ -z "$version" ]]; then
-        die "Usage: ${SCRIPT_NAME} shell <version>"
+        die "Usage: ${SCRIPT_NAME} shell <version|instance>"
     fi
 
-    validate_version "$version" || exit 1
+    validate_target "$version" || exit 1
 
     if ! is_running "$version"; then
         die "$version is not running"
@@ -966,16 +1336,23 @@ cmd_stats() {
                 running+=("$v")
             fi
         done
+        # Also check instances
+        load_registry
+        for name in "${!_REGISTRY_INSTANCES[@]}"; do
+            if is_running "$name"; then
+                running+=("$name")
+            fi
+        done
         if [[ ${#running[@]} -eq 0 ]]; then
             die "No containers are running"
         fi
         versions=("${running[@]}")
     fi
 
-    # Validate versions
+    # Validate targets
     local valid_running=()
     for v in "${versions[@]}"; do
-        if validate_version "$v" 2>/dev/null && is_running "$v"; then
+        if validate_target "$v" 2>/dev/null && is_running "$v"; then
             valid_running+=("$v")
         fi
     done
@@ -1015,19 +1392,20 @@ cmd_rebuild() {
         IFS=' ' read -ra versions <<< "$selected"
     fi
 
-    # Validate all versions first
+    # Validate all targets first
     for v in "${versions[@]}"; do
-        validate_version "$v" || exit 1
+        validate_target "$v" || exit 1
     done
 
     # Show warning
-    header "⚠️  Rebuild Containers"
+    header "Rebuild Containers"
     printf '\n'
     printf '%s\n' "  ${RED}${BOLD}WARNING: This will destroy and recreate the following containers.${RESET}"
     printf '%s\n' "  ${RED}Data in /storage volumes will be preserved.${RESET}"
     printf '\n'
     for v in "${versions[@]}"; do
-        printf '%s\n' "    • $v (${VERSION_DISPLAY_NAMES[$v]})"
+        resolve_target "$v"
+        printf '%s\n' "    • $v (${RESOLVED_DISPLAY_NAME})"
     done
     printf '\n'
     printf '%s' "  Type 'yes' to confirm: "
@@ -1040,6 +1418,7 @@ cmd_rebuild() {
     fi
 
     for v in "${versions[@]}"; do
+        resolve_target "$v"
         header "Rebuilding $v"
 
         # Ensure data directory exists
@@ -1055,10 +1434,15 @@ cmd_rebuild() {
         info "Recreating $v..."
         if run_compose "$v" up -d "$v"; then
             success "$v rebuilt successfully"
+            detect_lan_ip
             printf '\n'
             printf '%s\n' "  ${BOLD}Connection Details:${RESET}"
-            printf '%s\n' "    → Web Viewer: ${CYAN}http://localhost:${VERSION_PORTS_WEB[$v]}${RESET}"
-            printf '%s\n' "    → RDP:        ${CYAN}localhost:${VERSION_PORTS_RDP[$v]}${RESET}"
+            printf '%s\n' "    → Web Viewer: ${CYAN}http://localhost:${RESOLVED_WEB_PORT}${RESET}"
+            printf '%s\n' "    → RDP:        ${CYAN}localhost:${RESOLVED_RDP_PORT}${RESET}"
+            if [[ -n "$LAN_IP" ]]; then
+                printf '%s\n' "    → LAN Web:    ${CYAN}http://${LAN_IP}:${RESOLVED_WEB_PORT}${RESET}"
+                printf '%s\n' "    → LAN RDP:    ${CYAN}${LAN_IP}:${RESOLVED_RDP_PORT}${RESET}"
+            fi
             printf '\n'
         else
             error "Failed to rebuild $v"
@@ -1116,6 +1500,32 @@ cmd_list() {
             fi
         done
     done
+
+    # Show instances section
+    load_registry
+    if [[ ${#_REGISTRY_INSTANCES[@]} -gt 0 ]]; then
+        printf '\n'
+        printf '%s\n' "  ${BOLD}INSTANCES${RESET}"
+        printf '%s\n' "  ${DIM}$(printf '─%.0s' {1..50})${RESET}"
+
+        for name in "${!_REGISTRY_INSTANCES[@]}"; do
+            local base status_tag
+            base=$(registry_get_field "$name" "base")
+            status_tag=""
+            if is_running "$name"; then
+                status_tag="${GREEN}[running]${RESET}"
+            elif container_exists "$name"; then
+                status_tag="${YELLOW}[stopped]${RESET}"
+            fi
+            local resource_tag
+            if [[ "${VERSION_RESOURCE_TYPE[$base]}" == "modern" ]]; then
+                resource_tag="${CYAN}(8G RAM)${RESET}"
+            else
+                resource_tag="${DIM}(2G RAM)${RESET}"
+            fi
+            printf "    %-20s %-18s %s %s\n" "$name" "${VERSION_DISPLAY_NAMES[$base]}" "$resource_tag" "$status_tag"
+        done
+    fi
     printf '\n'
 }
 
@@ -1123,21 +1533,43 @@ cmd_inspect() {
     local version="${1:-}"
 
     if [[ -z "$version" ]]; then
-        die "Usage: ${SCRIPT_NAME} inspect <version>"
+        die "Usage: ${SCRIPT_NAME} inspect <version|instance>"
     fi
 
-    validate_version "$version" || exit 1
+    validate_target "$version" || exit 1
+
+    resolve_target "$version"
 
     header "Container Details: $version"
     printf '\n'
     printf '%s\n' "  ${BOLD}Version:${RESET}      $version"
-    printf '%s\n' "  ${BOLD}Name:${RESET}         ${VERSION_DISPLAY_NAMES[$version]}"
-    printf '%s\n' "  ${BOLD}Category:${RESET}     ${VERSION_CATEGORIES[$version]}"
+    printf '%s\n' "  ${BOLD}Name:${RESET}         ${RESOLVED_DISPLAY_NAME}"
+    printf '%s\n' "  ${BOLD}Type:${RESET}         ${RESOLVED_TYPE}"
+    if [[ "$RESOLVED_TYPE" == "instance" ]]; then
+        printf '%s\n' "  ${BOLD}Base:${RESET}         ${RESOLVED_BASE}"
+        local suffix created
+        suffix=$(registry_get_field "$version" "suffix")
+        created=$(registry_get_field "$version" "created")
+        printf '%s\n' "  ${BOLD}Suffix:${RESET}       ${suffix}"
+        printf '%s\n' "  ${BOLD}Created:${RESET}      ${created}"
+    fi
+    printf '%s\n' "  ${BOLD}Category:${RESET}     ${VERSION_CATEGORIES[$RESOLVED_BASE]}"
     printf '%s\n' "  ${BOLD}Status:${RESET}       $(get_status "$version")"
-    printf '%s\n' "  ${BOLD}Web Port:${RESET}     ${VERSION_PORTS_WEB[$version]}"
-    printf '%s\n' "  ${BOLD}RDP Port:${RESET}     ${VERSION_PORTS_RDP[$version]}"
-    printf '%s\n' "  ${BOLD}Resources:${RESET}    ${VERSION_RESOURCE_TYPE[$version]}"
-    printf '%s\n' "  ${BOLD}Compose:${RESET}      ${VERSION_COMPOSE_FILES[$version]}"
+    printf '%s\n' "  ${BOLD}Web Port:${RESET}     ${RESOLVED_WEB_PORT}"
+    printf '%s\n' "  ${BOLD}RDP Port:${RESET}     ${RESOLVED_RDP_PORT}"
+    printf '%s\n' "  ${BOLD}Resources:${RESET}    ${VERSION_RESOURCE_TYPE[$RESOLVED_BASE]}"
+    if [[ "$RESOLVED_TYPE" == "base" ]]; then
+        printf '%s\n' "  ${BOLD}Compose:${RESET}      ${VERSION_COMPOSE_FILES[$version]}"
+    else
+        printf '%s\n' "  ${BOLD}Compose:${RESET}      instances/${version}.yml"
+    fi
+    printf '%s\n' "  ${BOLD}Web URL:${RESET}      http://localhost:${RESOLVED_WEB_PORT}"
+    printf '%s\n' "  ${BOLD}RDP:${RESET}          localhost:${RESOLVED_RDP_PORT}"
+    detect_lan_ip
+    if [[ -n "$LAN_IP" ]]; then
+        printf '%s\n' "  ${BOLD}LAN Web:${RESET}      http://${LAN_IP}:${RESOLVED_WEB_PORT}"
+        printf '%s\n' "  ${BOLD}LAN RDP:${RESET}      ${LAN_IP}:${RESOLVED_RDP_PORT}"
+    fi
     printf '\n'
 
     if container_exists "$version"; then
@@ -1191,6 +1623,23 @@ cmd_monitor() {
             fi
         done
 
+        # Also show instances
+        load_registry
+        for name in "${!_REGISTRY_INSTANCES[@]}"; do
+            local status
+            status=$(get_status "$name")
+            if [[ "$status" != "not created" ]]; then
+                resolve_target "$name"
+                ((++total_count))
+                if [[ "$status" == "running" ]]; then
+                    ((++running_count))
+                else
+                    ((++stopped_count))
+                fi
+                table_row "$name" "$RESOLVED_DISPLAY_NAME" "$status" "$RESOLVED_WEB_PORT" "$RESOLVED_RDP_PORT"
+            fi
+        done
+
         if [[ $total_count -eq 0 ]]; then
             printf '%s\n' "  ${DIM}No containers found${RESET}"
         fi
@@ -1211,6 +1660,10 @@ cmd_check() {
     if [[ "$DETECTED_ARCH" == "arm64" ]]; then
         printf '%s\n' "  ${BOLD}ARM64 image:${RESET}  dockurr/windows-arm"
         printf '%s\n' "  ${BOLD}Supported:${RESET}    ${ARM_VERSIONS[*]}"
+    fi
+    detect_lan_ip
+    if [[ -n "$LAN_IP" ]]; then
+        printf '%s\n' "  ${BOLD}LAN IP:${RESET}       ${LAN_IP}"
     fi
     printf '\n'
 }
@@ -1248,6 +1701,1057 @@ cmd_refresh() {
 }
 
 # ==============================================================================
+# PORT CHECK HELPER
+# ==============================================================================
+
+check_port() {
+    local port="$1"
+    if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
+        return 1  # port in use
+    fi
+    return 0
+}
+
+# ==============================================================================
+# INSTANCE PORT ALLOCATION & COMPOSE GENERATION
+# ==============================================================================
+
+# Allocate ports for a new instance, echoes "web_port rdp_port"
+allocate_instance_ports() {
+    load_registry
+
+    # Collect all used ports
+    local -A used_ports=()
+    for v in "${ALL_VERSIONS[@]}"; do
+        used_ports["${VERSION_PORTS_WEB[$v]}"]=1
+        used_ports["${VERSION_PORTS_RDP[$v]}"]=1
+    done
+    for name in "${!_REGISTRY_INSTANCES[@]}"; do
+        local wp rp
+        wp=$(registry_get_field "$name" "web_port")
+        rp=$(registry_get_field "$name" "rdp_port")
+        used_ports["$wp"]=1
+        used_ports["$rp"]=1
+    done
+
+    # Find free web port
+    local web_port=""
+    local max_web=$((INSTANCE_WEB_PORT_BASE + INSTANCE_PORT_RANGE))
+    local p
+    for ((p=INSTANCE_WEB_PORT_BASE; p<=max_web; p++)); do
+        if [[ -z "${used_ports[$p]:-}" ]] && check_port "$p"; then
+            web_port=$p
+            break
+        fi
+    done
+    if [[ -z "$web_port" ]]; then
+        die "No free web ports in range ${INSTANCE_WEB_PORT_BASE}-${max_web}"
+    fi
+
+    # Find free RDP port
+    local rdp_port=""
+    local max_rdp=$((INSTANCE_RDP_PORT_BASE + INSTANCE_PORT_RANGE))
+    for ((p=INSTANCE_RDP_PORT_BASE; p<=max_rdp; p++)); do
+        if [[ -z "${used_ports[$p]:-}" ]] && check_port "$p"; then
+            rdp_port=$p
+            break
+        fi
+    done
+    if [[ -z "$rdp_port" ]]; then
+        die "No free RDP ports in range ${INSTANCE_RDP_PORT_BASE}-${max_rdp}"
+    fi
+
+    echo "$web_port $rdp_port"
+}
+
+# Get the next numeric suffix for a base version
+next_instance_suffix() {
+    local base="$1"
+    load_registry
+
+    local max=0
+    for name in "${!_REGISTRY_INSTANCES[@]}"; do
+        local entry_base
+        entry_base=$(registry_get_field "$name" "base")
+        if [[ "$entry_base" == "$base" ]]; then
+            local entry_suffix
+            entry_suffix=$(registry_get_field "$name" "suffix")
+            if [[ "$entry_suffix" =~ ^[0-9]+$ ]] && ((entry_suffix > max)); then
+                max=$entry_suffix
+            fi
+        fi
+    done
+    echo $((max + 1))
+}
+
+# Generate a compose file for an instance
+generate_instance_compose() {
+    local name="$1" base="$2" web_port="$3" rdp_port="$4"
+
+    ensure_instance_dir
+
+    local env_file="${VERSION_ENV_FILES[$base]}"
+    local version_val="${VERSION_ENV_VALUES[$base]}"
+    local compose_file="$INSTANCE_DIR/${name}.yml"
+
+    cat > "$compose_file" << YAML
+---
+services:
+  ${name}:
+    image: \${WINDOWS_IMAGE:-dockurr/windows}
+    container_name: ${name}
+    env_file: ../${env_file}
+    environment:
+      VERSION: "${version_val}"
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - ${web_port}:8006
+      - ${rdp_port}:3389/tcp
+      - ${rdp_port}:3389/udp
+    volumes:
+      - ../data/${name}:/storage
+    restart: \${RESTART_POLICY:-on-failure}
+    stop_grace_period: 2m
+YAML
+}
+
+# ==============================================================================
+# SNAPSHOT COMMAND
+# ==============================================================================
+
+cmd_snapshot() {
+    local version="${1:-}"
+    local name="${2:-}"
+
+    if [[ -z "$version" ]]; then
+        die "Usage: ${SCRIPT_NAME} snapshot <version|instance> [name]"
+    fi
+
+    validate_target "$version" || exit 1
+    resolve_target "$version"
+
+    # Skip if container was never created
+    refresh_status_cache
+    if ! container_exists "$RESOLVED_NAME"; then
+        die "$RESOLVED_NAME was never created — nothing to snapshot"
+    fi
+
+    local data_dir="$SCRIPT_DIR/data/$RESOLVED_NAME"
+    if [[ ! -d "$data_dir" ]] || [[ -z "$(ls -A "$data_dir" 2>/dev/null)" ]]; then
+        die "No data found for $RESOLVED_NAME (data/$RESOLVED_NAME/ is empty or missing)"
+    fi
+
+    # Default name: timestamp
+    if [[ -z "$name" ]]; then
+        name=$(date +%Y%m%d-%H%M%S)
+    fi
+
+    local snap_dir="$SCRIPT_DIR/snapshots/$RESOLVED_NAME/$name"
+    if [[ -d "$snap_dir" ]]; then
+        die "Snapshot already exists: snapshots/$RESOLVED_NAME/$name"
+    fi
+
+    header "Snapshot: ${RESOLVED_DISPLAY_NAME} ($RESOLVED_NAME)"
+
+    # Stop container if running (remember to restart)
+    local was_running=false
+    if is_running "$RESOLVED_NAME"; then
+        was_running=true
+        info "Stopping $RESOLVED_NAME for snapshot..."
+        run_compose "$RESOLVED_NAME" stop "$RESOLVED_NAME"
+    fi
+
+    info "Creating snapshot: snapshots/$RESOLVED_NAME/$name"
+    mkdir -p "$snap_dir"
+    if cp -a "$data_dir/." "$snap_dir/"; then
+        local size
+        size=$(du -sh "$snap_dir" | awk '{print $1}')
+        success "Snapshot created successfully"
+        printf '\n'
+        printf '%s\n' "  ${BOLD}Path:${RESET} snapshots/$RESOLVED_NAME/$name"
+        printf '%s\n' "  ${BOLD}Size:${RESET} $size"
+        printf '\n'
+    else
+        error "Failed to create snapshot"
+        # Clean up partial snapshot
+        rm -rf "$snap_dir"
+    fi
+
+    # Restart if was running
+    if [[ "$was_running" == "true" ]]; then
+        info "Restarting $RESOLVED_NAME..."
+        run_compose "$RESOLVED_NAME" up -d "$RESOLVED_NAME"
+        invalidate_cache
+    fi
+}
+
+# ==============================================================================
+# RESTORE COMMAND
+# ==============================================================================
+
+cmd_restore() {
+    local version="${1:-}"
+    local name="${2:-}"
+
+    if [[ -z "$version" ]]; then
+        die "Usage: ${SCRIPT_NAME} restore <version|instance> [name]"
+    fi
+
+    validate_target "$version" || exit 1
+    resolve_target "$version"
+
+    # Skip if container was never created
+    refresh_status_cache
+    if ! container_exists "$RESOLVED_NAME"; then
+        die "$RESOLVED_NAME was never created — nothing to restore"
+    fi
+
+    local snap_base="$SCRIPT_DIR/snapshots/$RESOLVED_NAME"
+    if [[ ! -d "$snap_base" ]]; then
+        die "No snapshots found for $RESOLVED_NAME"
+    fi
+
+    # If no name: list available snapshots and let user pick
+    if [[ -z "$name" ]]; then
+        local snapshots=()
+        while IFS= read -r d; do
+            snapshots+=("$(basename "$d")")
+        done < <(find "$snap_base" -mindepth 1 -maxdepth 1 -type d | sort)
+
+        if [[ ${#snapshots[@]} -eq 0 ]]; then
+            die "No snapshots found for $RESOLVED_NAME"
+        fi
+
+        header "Available Snapshots for $RESOLVED_NAME"
+        printf '\n'
+        local i=1
+        for s in "${snapshots[@]}"; do
+            local size
+            size=$(du -sh "$snap_base/$s" | awk '{print $1}')
+            printf '  %s) %-24s %s\n' "$i" "$s" "${DIM}($size)${RESET}"
+            ((i++))
+        done
+        printf '\n'
+        printf '  Select snapshot [1-%d]: ' "${#snapshots[@]}"
+
+        local choice
+        read -r choice
+        if [[ ! "$choice" =~ ^[0-9]+$ ]] || ((choice < 1 || choice > ${#snapshots[@]})); then
+            die "Invalid selection"
+        fi
+        name="${snapshots[$((choice-1))]}"
+    fi
+
+    local snap_dir="$snap_base/$name"
+    if [[ ! -d "$snap_dir" ]]; then
+        die "Snapshot not found: snapshots/$RESOLVED_NAME/$name"
+    fi
+
+    header "Restore: ${RESOLVED_DISPLAY_NAME} ($RESOLVED_NAME)"
+    printf '\n'
+    printf '%s\n' "  ${RED}${BOLD}WARNING: This will replace current data for $RESOLVED_NAME.${RESET}"
+    printf '%s\n' "  ${RED}Restoring from: snapshots/$RESOLVED_NAME/$name${RESET}"
+    printf '\n'
+    printf '%s' "  Type 'yes' to confirm: "
+
+    local confirm
+    read -r confirm
+    if [[ "$confirm" != "yes" ]]; then
+        info "Canceled"
+        return 0
+    fi
+
+    # Stop container if running (remember to restart)
+    local was_running=false
+    if is_running "$RESOLVED_NAME"; then
+        was_running=true
+        info "Stopping $RESOLVED_NAME for restore..."
+        run_compose "$RESOLVED_NAME" stop "$RESOLVED_NAME"
+    fi
+
+    local data_dir="$SCRIPT_DIR/data/$RESOLVED_NAME"
+    info "Restoring data from snapshot..."
+    mkdir -p "$data_dir"
+    rm -rf "${data_dir:?}/"*
+    if cp -a "$snap_dir/." "$data_dir/"; then
+        success "Data restored successfully from snapshots/$RESOLVED_NAME/$name"
+    else
+        error "Failed to restore data"
+    fi
+
+    # Restart if was running
+    if [[ "$was_running" == "true" ]]; then
+        info "Restarting $RESOLVED_NAME..."
+        run_compose "$RESOLVED_NAME" up -d "$RESOLVED_NAME"
+        invalidate_cache
+    fi
+}
+
+# ==============================================================================
+# PULL COMMAND
+# ==============================================================================
+
+cmd_pull() {
+    local versions=("$@")
+
+    detect_arch
+    local image="dockurr/windows"
+    if [[ "$DETECTED_ARCH" == "arm64" ]]; then
+        image="dockurr/windows-arm"
+    fi
+
+    header "Pull Docker Image"
+
+    info "Image: $image"
+
+    # Get current digest before pull
+    local digest_before
+    digest_before=$(docker inspect --format='{{index .RepoDigests 0}}' "$image" 2>/dev/null || echo "none")
+
+    info "Pulling latest image..."
+    if docker pull "$image"; then
+        local digest_after
+        digest_after=$(docker inspect --format='{{index .RepoDigests 0}}' "$image" 2>/dev/null || echo "none")
+        if [[ "$digest_before" == "$digest_after" ]]; then
+            success "Image is already up to date"
+        else
+            success "Image updated"
+        fi
+    else
+        error "Failed to pull image"
+    fi
+    printf '\n'
+}
+
+# ==============================================================================
+# DISK COMMAND
+# ==============================================================================
+
+cmd_disk() {
+    local versions=("$@")
+
+    header "Disk Usage"
+
+    local data_base="$SCRIPT_DIR/data"
+    if [[ ! -d "$data_base" ]]; then
+        info "No data directory found"
+        return 0
+    fi
+
+    # If no versions specified, scan all data directories
+    if [[ ${#versions[@]} -eq 0 ]]; then
+        for v in "${ALL_VERSIONS[@]}"; do
+            if [[ -d "$data_base/$v" ]]; then
+                versions+=("$v")
+            fi
+        done
+        # Also include instance data dirs
+        load_registry
+        for name in "${!_REGISTRY_INSTANCES[@]}"; do
+            if [[ -d "$data_base/$name" ]]; then
+                versions+=("$name")
+            fi
+        done
+    fi
+
+    if [[ ${#versions[@]} -eq 0 ]]; then
+        info "No VM data directories found"
+        return 0
+    fi
+
+    # Refresh cache for status info
+    refresh_status_cache
+
+    printf '\n'
+    printf "  %s%-20s %-12s %-10s%s\n" "${BOLD}${DIM}" "VERSION" "SIZE" "STATUS" "${RESET}"
+    printf '%s\n' "  ${DIM}$(printf '─%.0s' {1..44})${RESET}"
+
+    for v in "${versions[@]}"; do
+        if [[ -d "$data_base/$v" ]]; then
+            local size status
+            size=$(du -sh "$data_base/$v" 2>/dev/null | awk '{print $1}')
+            status=$(get_status "$v")
+            local status_color
+            case "$status" in
+                running) status_color="${GREEN}" ;;
+                stopped|exited) status_color="${RED}" ;;
+                *) status_color="${YELLOW}" ;;
+            esac
+            printf "  %-20s %-12s %s%-10s%s\n" "$v" "$size" "$status_color" "$status" "${RESET}"
+        fi
+    done
+
+    printf '%s\n' "  ${DIM}$(printf '─%.0s' {1..44})${RESET}"
+
+    # Total data usage
+    local total
+    total=$(du -sh "$data_base" 2>/dev/null | awk '{print $1}')
+    printf "  %-20s %s\n" "Total:" "$total"
+
+    # Snapshots usage
+    local snap_base="$SCRIPT_DIR/snapshots"
+    if [[ -d "$snap_base" ]]; then
+        local snap_total snap_count
+        snap_total=$(du -sh "$snap_base" 2>/dev/null | awk '{print $1}')
+        snap_count=$(find "$snap_base" -mindepth 2 -maxdepth 2 -type d 2>/dev/null | wc -l)
+        printf '\n'
+        printf "  Snapshots:   %s (%d snapshot%s)\n" "$snap_total" "$snap_count" "$( ((snap_count != 1)) && echo "s" )"
+
+        # Per-version snapshot breakdown
+        for v in "${ALL_VERSIONS[@]}"; do
+            if [[ -d "$snap_base/$v" ]]; then
+                local vsnap_size vsnap_count
+                vsnap_size=$(du -sh "$snap_base/$v" 2>/dev/null | awk '{print $1}')
+                vsnap_count=$(find "$snap_base/$v" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+                printf "    %-10s %s (%d snapshot%s)\n" "$v" "$vsnap_size" "$vsnap_count" "$( ((vsnap_count != 1)) && echo "s" )"
+            fi
+        done
+        # Instance snapshot breakdown
+        load_registry
+        for name in "${!_REGISTRY_INSTANCES[@]}"; do
+            if [[ -d "$snap_base/$name" ]]; then
+                local vsnap_size vsnap_count
+                vsnap_size=$(du -sh "$snap_base/$name" 2>/dev/null | awk '{print $1}')
+                vsnap_count=$(find "$snap_base/$name" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+                printf "    %-18s %s (%d snapshot%s)\n" "$name" "$vsnap_size" "$vsnap_count" "$( ((vsnap_count != 1)) && echo "s" )"
+            fi
+        done
+    fi
+    printf '\n'
+}
+
+# ==============================================================================
+# CLEAN COMMAND
+# ==============================================================================
+
+cmd_clean() {
+    local purge_data=false
+    if [[ "${1:-}" == "--data" ]]; then
+        purge_data=true
+    fi
+
+    header "Clean Stopped Containers"
+
+    refresh_status_cache
+
+    # Find stopped containers (base + instances)
+    local stopped=()
+    for v in "${ALL_VERSIONS[@]}"; do
+        local status
+        status=$(get_status "$v")
+        if [[ "$status" == "exited" || "$status" == "stopped" ]]; then
+            stopped+=("$v")
+        fi
+    done
+    load_registry
+    for name in "${!_REGISTRY_INSTANCES[@]}"; do
+        local status
+        status=$(get_status "$name")
+        if [[ "$status" == "exited" || "$status" == "stopped" ]]; then
+            stopped+=("$name")
+        fi
+    done
+
+    if [[ ${#stopped[@]} -eq 0 ]]; then
+        info "No stopped containers found"
+        return 0
+    fi
+
+    printf '\n'
+    printf '%s\n' "  The following stopped containers will be removed:"
+    for v in "${stopped[@]}"; do
+        resolve_target "$v"
+        printf '%s\n' "    • $v (${RESOLVED_DISPLAY_NAME})"
+    done
+
+    if [[ "$purge_data" == "true" ]]; then
+        printf '\n'
+        printf '%s\n' "  ${RED}${BOLD}Data directories will also be deleted:${RESET}"
+        for v in "${stopped[@]}"; do
+            if [[ -d "$SCRIPT_DIR/data/$v" ]]; then
+                local size
+                size=$(du -sh "$SCRIPT_DIR/data/$v" 2>/dev/null | awk '{print $1}')
+                printf '%s\n' "    ${RED}• data/$v/ ($size)${RESET}"
+            fi
+        done
+    fi
+
+    printf '\n'
+    printf '%s' "  Type 'yes' to confirm: "
+
+    local confirm
+    read -r confirm
+    if [[ "$confirm" != "yes" ]]; then
+        info "Canceled"
+        return 0
+    fi
+
+    local freed_before
+    freed_before=$(df "$SCRIPT_DIR" | tail -1 | awk '{print $4}')
+
+    for v in "${stopped[@]}"; do
+        info "Removing $v..."
+        run_compose "$v" down "$v" 2>/dev/null || true
+        if [[ "$purge_data" == "true" && -d "$SCRIPT_DIR/data/$v" ]]; then
+            rm -rf "${SCRIPT_DIR:?}/data/$v"
+            info "Deleted data/$v/"
+        fi
+    done
+
+    local freed_after
+    freed_after=$(df "$SCRIPT_DIR" | tail -1 | awk '{print $4}')
+    local freed_kb=$((freed_after - freed_before))
+    local freed_mb=$((freed_kb / 1024))
+
+    printf '\n'
+    success "Cleaned ${#stopped[@]} container(s)"
+    if ((freed_mb > 0)); then
+        printf '%s\n' "  ${BOLD}Freed:${RESET} ${freed_mb}MB"
+    fi
+    printf '\n'
+
+    invalidate_cache
+}
+
+# ==============================================================================
+# OPEN COMMAND
+# ==============================================================================
+
+cmd_open() {
+    local version="${1:-}"
+
+    if [[ -z "$version" ]]; then
+        die "Usage: ${SCRIPT_NAME} open <version|instance>"
+    fi
+
+    validate_target "$version" || exit 1
+    resolve_target "$version"
+
+    # Start container if not running
+    if ! is_running "$version"; then
+        printf '%s' "${YELLOW}[WARN]${RESET} $version is not running. Start it? [y/N]: "
+        local confirm
+        read -r confirm
+        if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            cmd_start "$version"
+        else
+            die "$version is not running"
+        fi
+    fi
+
+    local url="http://localhost:${RESOLVED_WEB_PORT}"
+
+    # Detect browser opener
+    local opener=""
+    if command -v xdg-open &>/dev/null; then
+        opener="xdg-open"
+    elif command -v open &>/dev/null; then
+        opener="open"
+    else
+        info "Could not detect browser opener"
+        info "Open manually: $url"
+        return 0
+    fi
+
+    info "Opening $url ..."
+    "$opener" "$url" &>/dev/null &
+
+    detect_lan_ip
+    if [[ -n "$LAN_IP" ]]; then
+        printf '%s\n' "  ${DIM}LAN: http://${LAN_IP}:${RESOLVED_WEB_PORT}${RESET}"
+    fi
+}
+
+# ==============================================================================
+# INSTANCE COMMANDS
+# ==============================================================================
+
+cmd_new() {
+    local version="$1"
+    local suffix="${2:-}"
+    local clone="${3:-false}"
+
+    validate_version "$version" || exit 1
+
+    # Determine instance name
+    if [[ -z "$suffix" ]]; then
+        suffix=$(next_instance_suffix "$version")
+    fi
+    local instance_name="${version}-${suffix}"
+
+    # Check not already registered
+    load_registry
+    if [[ -n "${_REGISTRY_INSTANCES[$instance_name]:-}" ]]; then
+        die "Instance '$instance_name' already exists"
+    fi
+
+    # Check ARM compatibility
+    detect_arch
+    if [[ "$DETECTED_ARCH" == "arm64" ]]; then
+        if ! is_arm_supported "$version"; then
+            die "${VERSION_DISPLAY_NAMES[$version]} ($version) is not supported on ARM64. Supported: ${ARM_VERSIONS[*]}"
+        fi
+    fi
+
+    # Run prerequisite checks
+    check_docker || exit 1
+    check_kvm || exit 1
+
+    header "Creating Instance: $instance_name"
+
+    # Allocate ports
+    local ports
+    ports=$(allocate_instance_ports)
+    local web_port rdp_port
+    read -r web_port rdp_port <<< "$ports"
+
+    info "Allocated ports — Web: $web_port, RDP: $rdp_port"
+
+    # Generate compose file
+    generate_instance_compose "$instance_name" "$version" "$web_port" "$rdp_port"
+    info "Generated compose file: instances/${instance_name}.yml"
+
+    # Create data directory
+    local data_dir="$SCRIPT_DIR/data/$instance_name"
+    mkdir -p "$data_dir"
+
+    # Clone data from base if requested
+    if [[ "$clone" == "true" ]]; then
+        local base_data="$SCRIPT_DIR/data/$version"
+        if [[ ! -d "$base_data" ]] || [[ -z "$(ls -A "$base_data" 2>/dev/null)" ]]; then
+            warn "No data found for base $version to clone (data/$version/ is empty or missing)"
+        else
+            local was_running=false
+            if is_running "$version"; then
+                was_running=true
+                info "Stopping base $version for cloning..."
+                run_compose "$version" stop "$version"
+            fi
+
+            info "Cloning data from $version to $instance_name..."
+            if cp -a "$base_data/." "$data_dir/"; then
+                success "Data cloned successfully"
+            else
+                error "Failed to clone data"
+            fi
+
+            if [[ "$was_running" == "true" ]]; then
+                info "Restarting base $version..."
+                run_compose "$version" up -d "$version"
+            fi
+        fi
+    else
+        # Pre-populate from ISO cache if available (skip if cloning)
+        local cache_src="$ISO_CACHE_DIR/$version"
+        if [[ -d "$cache_src" ]]; then
+            local iso_files
+            iso_files=$(find "$cache_src" -maxdepth 1 -name '*.iso' -type f 2>/dev/null || true)
+            if [[ -n "$iso_files" ]]; then
+                info "Restoring cached ISO for $version..."
+                cp "$cache_src"/*.iso "$data_dir/"
+                success "ISO restored from cache (skipping download)"
+            fi
+        fi
+    fi
+
+    # Register instance
+    register_instance "$instance_name" "$version" "$suffix" "$web_port" "$rdp_port"
+    success "Instance registered"
+
+    # Check resources
+    local resource_type="${VERSION_RESOURCE_TYPE[$version]}"
+    if [[ "$resource_type" == "modern" ]]; then
+        check_memory "$MODERN_RAM_GB" || true
+        check_disk "$MODERN_DISK_GB" || true
+    else
+        check_memory "$LEGACY_RAM_GB" || true
+        check_disk "$LEGACY_DISK_GB" || true
+    fi
+
+    # Check ports are available
+    if ! check_port "$web_port"; then
+        error "Web port $web_port is already in use"
+        return 1
+    fi
+    if ! check_port "$rdp_port"; then
+        error "RDP port $rdp_port is already in use"
+        return 1
+    fi
+
+    # Start the instance
+    info "Starting $instance_name..."
+    if run_compose "$instance_name" up -d "$instance_name"; then
+        success "$instance_name started successfully"
+    else
+        error "Failed to start $instance_name"
+        return 1
+    fi
+
+    # Show connection info
+    detect_lan_ip
+    printf '\n'
+    printf '%s\n' "  ${BOLD}Instance:${RESET}     $instance_name"
+    printf '%s\n' "  ${BOLD}Base:${RESET}         ${VERSION_DISPLAY_NAMES[$version]}"
+    printf '\n'
+    printf '%s\n' "  ${BOLD}Connection Details:${RESET}"
+    printf '%s\n' "    → Web Viewer: ${CYAN}http://localhost:${web_port}${RESET}"
+    printf '%s\n' "    → RDP:        ${CYAN}localhost:${rdp_port}${RESET}"
+    if [[ -n "$LAN_IP" ]]; then
+        printf '%s\n' "    → LAN Web:    ${CYAN}http://${LAN_IP}:${web_port}${RESET}"
+        printf '%s\n' "    → LAN RDP:    ${CYAN}${LAN_IP}:${rdp_port}${RESET}"
+    fi
+    printf '\n'
+
+    invalidate_cache
+}
+
+cmd_destroy() {
+    local instance="${1:-}"
+
+    if [[ -z "$instance" ]]; then
+        die "Usage: ${SCRIPT_NAME} destroy <instance>"
+    fi
+
+    load_registry
+    if [[ -z "${_REGISTRY_INSTANCES[$instance]:-}" ]]; then
+        die "'$instance' is not a registered instance. Use '${SCRIPT_NAME} instances' to list instances."
+    fi
+
+    local base
+    base=$(registry_get_field "$instance" "base")
+
+    header "Destroy Instance: $instance"
+    printf '\n'
+    printf '%s\n' "  ${RED}${BOLD}WARNING: This will permanently remove instance '$instance'.${RESET}"
+    printf '%s\n' "  ${RED}Base version: ${VERSION_DISPLAY_NAMES[$base]}${RESET}"
+    printf '\n'
+    printf '%s' "  Type 'yes' to confirm: "
+
+    local confirm
+    read -r confirm
+    if [[ "$confirm" != "yes" ]]; then
+        info "Canceled"
+        return 0
+    fi
+
+    # Stop and remove container
+    info "Stopping and removing $instance..."
+    run_compose "$instance" down "$instance" 2>/dev/null || true
+
+    # Delete compose file
+    local compose_file="$INSTANCE_DIR/${instance}.yml"
+    if [[ -f "$compose_file" ]]; then
+        rm -f "$compose_file"
+        info "Removed compose file"
+    fi
+
+    # Prompt to delete data directory
+    local data_dir="$SCRIPT_DIR/data/$instance"
+    if [[ -d "$data_dir" ]]; then
+        local size
+        size=$(du -sh "$data_dir" 2>/dev/null | awk '{print $1}')
+        printf '\n'
+        printf '%s' "  Delete data directory data/$instance/ ($size)? [y/N]: "
+        local del_data
+        read -r del_data
+        if [[ "$del_data" =~ ^[Yy]$ ]]; then
+            rm -rf "$data_dir"
+            info "Deleted data/$instance/"
+        else
+            info "Data directory preserved at data/$instance/"
+        fi
+    fi
+
+    # Unregister
+    unregister_instance "$instance"
+    success "Instance '$instance' destroyed"
+
+    invalidate_cache
+}
+
+cmd_instances() {
+    local filter_base="${1:-}"
+
+    load_registry
+
+    if [[ ${#_REGISTRY_INSTANCES[@]} -eq 0 ]]; then
+        info "No instances registered"
+        printf '%s\n' "  Create one with: ${SCRIPT_NAME} start <version> --new [name]"
+        return 0
+    fi
+
+    header "Instances"
+
+    # Refresh cache for status info
+    refresh_status_cache
+
+    printf '\n'
+    printf "  %s%-20s %-10s %-10s %-8s %-8s %-20s%s\n" \
+        "${BOLD}${DIM}" "INSTANCE" "BASE" "STATUS" "WEB" "RDP" "CREATED" "${RESET}"
+    printf '%s\n' "  ${DIM}$(printf '─%.0s' {1..78})${RESET}"
+
+    for name in "${!_REGISTRY_INSTANCES[@]}"; do
+        local base web_port rdp_port created
+        base=$(registry_get_field "$name" "base")
+        web_port=$(registry_get_field "$name" "web_port")
+        rdp_port=$(registry_get_field "$name" "rdp_port")
+        created=$(registry_get_field "$name" "created")
+
+        # Filter by base version if specified
+        if [[ -n "$filter_base" && "$base" != "$filter_base" ]]; then
+            continue
+        fi
+
+        local status
+        status=$(get_status "$name")
+
+        local status_color
+        case "$status" in
+            running) status_color="${GREEN}" ;;
+            stopped|exited) status_color="${RED}" ;;
+            *) status_color="${YELLOW}" ;;
+        esac
+
+        # Warn if compose file is missing
+        local compose_file="$INSTANCE_DIR/${name}.yml"
+        local orphan=""
+        if [[ ! -f "$compose_file" ]]; then
+            orphan=" ${RED}[orphaned]${RESET}"
+        fi
+
+        # Format created date (show date part only)
+        local created_short="${created%%T*}"
+
+        printf "  %-20s %-10s %s%-10s%s %-8s %-8s %-20s%b\n" \
+            "$name" "$base" "$status_color" "$status" "${RESET}" "$web_port" "$rdp_port" "$created_short" "$orphan"
+    done
+    printf '\n'
+
+    detect_lan_ip
+    if [[ -n "$LAN_IP" ]]; then
+        printf '%s\n' "  ${DIM}LAN IP: ${LAN_IP} — use http://${LAN_IP}:<web-port> for remote access${RESET}"
+        printf '\n'
+    fi
+}
+
+# ==============================================================================
+# ISO CACHE
+# ==============================================================================
+
+cmd_cache() {
+    local subcmd="${1:-}"
+    shift || true
+
+    case "$subcmd" in
+        save)   cmd_cache_save "$@" ;;
+        list)   cmd_cache_list ;;
+        rm)     cmd_cache_rm "$@" ;;
+        flush)  cmd_cache_flush ;;
+        "")
+            error "Missing subcommand"
+            printf '%s\n' "  Usage: ${SCRIPT_NAME} cache <save|list|rm|flush>"
+            exit 1
+            ;;
+        *)
+            error "Unknown cache subcommand: $subcmd"
+            printf '%s\n' "  Usage: ${SCRIPT_NAME} cache <save|list|rm|flush>"
+            exit 1
+            ;;
+    esac
+}
+
+cmd_cache_save() {
+    local target="${1:-}"
+
+    if [[ -z "$target" ]]; then
+        die "Usage: ${SCRIPT_NAME} cache save <version|instance>"
+    fi
+
+    validate_target "$target" || exit 1
+    resolve_target "$target"
+
+    # Check container was created (same guard as snapshot)
+    refresh_status_cache
+    if ! container_exists "$RESOLVED_NAME"; then
+        die "$RESOLVED_NAME was never created — nothing to cache"
+    fi
+
+    local data_dir="$SCRIPT_DIR/data/$RESOLVED_NAME"
+    local iso_files
+    iso_files=$(find "$data_dir" -maxdepth 1 -name '*.iso' -type f 2>/dev/null || true)
+
+    if [[ -z "$iso_files" ]]; then
+        die "No ISO files found in data/$RESOLVED_NAME/"
+    fi
+
+    local cache_dest="$ISO_CACHE_DIR/$RESOLVED_BASE"
+    mkdir -p "$cache_dest"
+
+    header "Cache Save: ${RESOLVED_DISPLAY_NAME}"
+
+    local count=0
+    while IFS= read -r iso; do
+        local filename
+        filename=$(basename "$iso")
+        if [[ -f "$cache_dest/$filename" ]]; then
+            info "Already cached: $filename"
+        else
+            info "Caching $filename..."
+            cp "$iso" "$cache_dest/$filename"
+            success "Cached $filename"
+        fi
+        local size
+        size=$(du -h "$cache_dest/$filename" | awk '{print $1}')
+        printf '%s\n' "    Size: $size"
+        ((count++))
+    done <<< "$iso_files"
+
+    printf '\n'
+    success "Cached $count ISO file(s) to cache/$RESOLVED_BASE/"
+    printf '\n'
+}
+
+cmd_cache_list() {
+    if [[ ! -d "$ISO_CACHE_DIR" ]] || [[ -z "$(ls -A "$ISO_CACHE_DIR" 2>/dev/null)" ]]; then
+        info "No cached ISOs"
+        printf '%s\n' "  Cache ISOs with: ${SCRIPT_NAME} cache save <version>"
+        return 0
+    fi
+
+    header "ISO Cache"
+
+    local total_size=0
+    local found=false
+
+    for dir in "$ISO_CACHE_DIR"/*/; do
+        [[ -d "$dir" ]] || continue
+        local base
+        base=$(basename "$dir")
+        local display="${VERSION_DISPLAY_NAMES[$base]:-$base}"
+
+        local iso_files
+        iso_files=$(find "$dir" -maxdepth 1 -name '*.iso' -type f 2>/dev/null || true)
+        if [[ -z "$iso_files" ]]; then
+            continue
+        fi
+
+        found=true
+        printf '\n'
+        printf '  %s%s%s (%s)\n' "${BOLD}" "$base" "${RESET}" "$display"
+
+        while IFS= read -r iso; do
+            local filename size size_bytes
+            filename=$(basename "$iso")
+            size=$(du -h "$iso" | awk '{print $1}')
+            size_bytes=$(du -b "$iso" | awk '{print $1}')
+            total_size=$((total_size + size_bytes))
+            printf '    %s  %s\n' "$size" "$filename"
+        done <<< "$iso_files"
+    done
+
+    if [[ "$found" == "false" ]]; then
+        info "No cached ISOs"
+        return 0
+    fi
+
+    # Format total size
+    local total_human
+    if ((total_size >= 1073741824)); then
+        total_human="$(awk "BEGIN {printf \"%.1fG\", $total_size / 1073741824}")"
+    elif ((total_size >= 1048576)); then
+        total_human="$(awk "BEGIN {printf \"%.1fM\", $total_size / 1048576}")"
+    else
+        total_human="${total_size}B"
+    fi
+
+    printf '\n'
+    printf '  %s%s%s %s\n' "${DIM}" "$(printf '─%.0s' {1..40})" "${RESET}" ""
+    printf '  %sTotal: %s%s\n' "${BOLD}" "$total_human" "${RESET}"
+    printf '\n'
+}
+
+cmd_cache_rm() {
+    local version="${1:-}"
+
+    if [[ -z "$version" ]]; then
+        die "Usage: ${SCRIPT_NAME} cache rm <version>"
+    fi
+
+    # Validate it's a known base version
+    if [[ -z "${VERSION_COMPOSE_FILES[$version]:-}" ]]; then
+        die "Unknown version: $version. Run '${SCRIPT_NAME} list' to see available versions."
+    fi
+
+    local cache_dir="$ISO_CACHE_DIR/$version"
+    if [[ ! -d "$cache_dir" ]] || [[ -z "$(ls -A "$cache_dir" 2>/dev/null)" ]]; then
+        die "No cached ISOs for $version"
+    fi
+
+    local display="${VERSION_DISPLAY_NAMES[$version]:-$version}"
+
+    header "Remove Cached ISOs: $display"
+
+    # Show what will be removed
+    printf '\n'
+    local iso_files
+    iso_files=$(find "$cache_dir" -maxdepth 1 -name '*.iso' -type f 2>/dev/null || true)
+    while IFS= read -r iso; do
+        local filename size
+        filename=$(basename "$iso")
+        size=$(du -h "$iso" | awk '{print $1}')
+        printf '  %s  %s\n' "$size" "$filename"
+    done <<< "$iso_files"
+
+    local dir_size
+    dir_size=$(du -sh "$cache_dir" | awk '{print $1}')
+    printf '\n'
+    printf '%s\n' "  ${RED}${BOLD}This will remove $dir_size of cached ISOs for $version.${RESET}"
+    printf '\n'
+    printf '%s' "  Type 'yes' to confirm: "
+
+    local confirm
+    read -r confirm
+    if [[ "$confirm" != "yes" ]]; then
+        info "Canceled"
+        return 0
+    fi
+
+    rm -rf "$cache_dir"
+    success "Removed cached ISOs for $version"
+}
+
+cmd_cache_flush() {
+    if [[ ! -d "$ISO_CACHE_DIR" ]] || [[ -z "$(ls -A "$ISO_CACHE_DIR" 2>/dev/null)" ]]; then
+        info "Cache is already empty"
+        return 0
+    fi
+
+    header "Flush ISO Cache"
+
+    local total_size
+    total_size=$(du -sh "$ISO_CACHE_DIR" | awk '{print $1}')
+
+    printf '\n'
+    printf '%s\n' "  ${RED}${BOLD}This will remove all cached ISOs ($total_size).${RESET}"
+    printf '\n'
+    printf '%s' "  Type 'yes' to confirm: "
+
+    local confirm
+    read -r confirm
+    if [[ "$confirm" != "yes" ]]; then
+        info "Canceled"
+        return 0
+    fi
+
+    rm -rf "${ISO_CACHE_DIR:?}/"*
+    success "ISO cache flushed"
+}
+
+# ==============================================================================
 # HELP
 # ==============================================================================
 
@@ -1272,7 +2776,21 @@ show_usage() {
     printf '    %b [interval]     Real-time dashboard (default: 5s refresh)\n' "${BOLD}monitor${RESET}"
     printf '    %b                  Run prerequisites check\n' "${BOLD}check${RESET}"
     printf '    %b                Force refresh status cache\n' "${BOLD}refresh${RESET}"
+    printf '    %b <version>       Open web viewer in browser\n' "${BOLD}open${RESET}"
+    printf '    %b                   Pull latest Docker image\n' "${BOLD}pull${RESET}"
+    printf '    %b [version...]      Show disk usage per VM\n' "${BOLD}disk${RESET}"
+    printf '    %b <ver> [name]  Back up VM data directory\n' "${BOLD}snapshot${RESET}"
+    printf '    %b <ver> [name]   Restore VM data from snapshot\n' "${BOLD}restore${RESET}"
+    printf '    %b [--data]         Remove stopped containers\n' "${BOLD}clean${RESET}"
+    printf '    %b <instance>    Permanently remove an instance\n' "${BOLD}destroy${RESET}"
+    printf '    %b [base]      List all registered instances\n' "${BOLD}instances${RESET}"
+    printf '    %b <sub>          Manage ISO cache (save/list/rm/flush)\n' "${BOLD}cache${RESET}"
     printf '    %b                   Show this help message\n' "${BOLD}help${RESET}"
+    printf '\n'
+    printf '%b\n' "${BOLD}INSTANCE FLAGS (used with start)${RESET}"
+    printf '    %b              Create a new instance of a version\n' "${BOLD}--new${RESET}"
+    printf '    %b [name]       Name the instance (default: auto-numbered)\n' "${BOLD}--new${RESET}"
+    printf '    %b            Clone data from base version to new instance\n' "${BOLD}--clone${RESET}"
     printf '\n'
     printf '%b\n' "${BOLD}CATEGORIES${RESET}"
     printf '    desktop    Win 11/10/8.1/7 (Pro, Enterprise, LTSC variants)\n'
@@ -1291,9 +2809,30 @@ show_usage() {
     printf '    %s list desktop            # List desktop versions\n' "${SCRIPT_NAME}"
     printf '    %s monitor 10              # Dashboard with 10s refresh\n' "${SCRIPT_NAME}"
     printf '    %s rebuild win11           # Recreate container\n' "${SCRIPT_NAME}"
+    printf '    %s open win11              # Open web viewer in browser\n' "${SCRIPT_NAME}"
+    printf '    %s pull                    # Pull latest image\n' "${SCRIPT_NAME}"
+    printf '    %s disk                    # Show disk usage\n' "${SCRIPT_NAME}"
+    printf '    %s snapshot win11          # Back up VM data\n' "${SCRIPT_NAME}"
+    printf '    %s restore win11           # Restore from snapshot\n' "${SCRIPT_NAME}"
+    printf '    %s clean                   # Remove stopped containers\n' "${SCRIPT_NAME}"
+    printf '\n'
+    printf '%b\n' "${BOLD}INSTANCE EXAMPLES${RESET}"
+    printf '    %s start winxp --new       # Create winxp-1 with auto ports\n' "${SCRIPT_NAME}"
+    printf '    %s start winxp --new lab   # Create winxp-lab\n' "${SCRIPT_NAME}"
+    printf '    %s start winxp --new lab --clone  # Clone base data\n' "${SCRIPT_NAME}"
+    printf '    %s stop winxp-lab          # Stop instance\n' "${SCRIPT_NAME}"
+    printf '    %s instances               # List all instances\n' "${SCRIPT_NAME}"
+    printf '    %s destroy winxp-lab       # Remove instance\n' "${SCRIPT_NAME}"
+    printf '\n'
+    printf '%b\n' "${BOLD}CACHE EXAMPLES${RESET}"
+    printf '    %s cache save winxp        # Cache ISO after first download\n' "${SCRIPT_NAME}"
+    printf '    %s cache list              # Show cached ISOs\n' "${SCRIPT_NAME}"
+    printf '    %s cache rm winxp          # Remove cached winxp ISO\n' "${SCRIPT_NAME}"
+    printf '    %s cache flush             # Clear all cached ISOs\n' "${SCRIPT_NAME}"
     printf '\n'
     printf '%b\n' "${BOLD}PORTS${RESET}"
     printf '    Each version has unique ports for Web UI and RDP access.\n'
+    printf '    Instances auto-allocate ports from 9000+ (web) and 4000+ (RDP).\n'
     printf "    Run '%s list' to see port mappings.\n" "${SCRIPT_NAME}"
     printf '\n'
     printf '%b\n' "${BOLD}ARM64 SUPPORT${RESET}"
@@ -1329,6 +2868,15 @@ main() {
         monitor)    cmd_monitor "$@" ;;
         check)      cmd_check "$@" ;;
         refresh)    cmd_refresh "$@" ;;
+        open)       cmd_open "$@" ;;
+        pull)       cmd_pull "$@" ;;
+        disk)       cmd_disk "$@" ;;
+        snapshot)   cmd_snapshot "$@" ;;
+        restore)    cmd_restore "$@" ;;
+        clean)      cmd_clean "$@" ;;
+        destroy)    cmd_destroy "$@" ;;
+        instances)  cmd_instances "$@" ;;
+        cache)      cmd_cache "$@" ;;
         help|--help|-h)
             show_usage
             ;;

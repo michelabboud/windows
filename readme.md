@@ -106,6 +106,35 @@ Use `winctl.sh` for easy container management:
 # Rebuild container (preserves data)
 ./winctl.sh rebuild win11
 
+# Open web viewer in browser
+./winctl.sh open win11
+
+# Pull latest Docker image
+./winctl.sh pull
+
+# Show disk usage per VM
+./winctl.sh disk
+
+# Snapshot and restore VM data
+./winctl.sh snapshot win11 before-update
+./winctl.sh restore win11 before-update
+
+# Clean up stopped containers
+./winctl.sh clean
+
+# Multi-instance support
+./winctl.sh start winxp --new          # Create winxp-1 with auto ports
+./winctl.sh start winxp --new lab      # Create winxp-lab
+./winctl.sh start winxp --new lab --clone  # Clone data from base
+./winctl.sh instances                  # List all instances
+./winctl.sh destroy winxp-lab          # Remove instance
+
+# ISO cache (skip re-downloads for new instances)
+./winctl.sh cache save winxp           # Cache ISO after first download
+./winctl.sh cache list                 # Show cached ISOs
+./winctl.sh cache rm winxp             # Remove cached winxp ISO
+./winctl.sh cache flush                # Clear all cached ISOs
+
 # Full help (includes ARM64 info)
 ./winctl.sh help
 ```
@@ -153,8 +182,21 @@ compose/
 ├── server/              # Server 2003-2025
 └── tiny/                # Tiny10, Tiny11
 
+instances/               # Generated instance files
+├── registry.json        # Instance registry
+└── *.yml                # Instance compose files
+
 data/                    # VM storage (per-version folders)
 ├── win11/
+├── winxp/
+├── winxp-1/             # Instance data
+└── ...
+
+snapshots/               # VM data snapshots
+├── win11/
+└── ...
+
+cache/                   # ISO cache (skip re-downloads)
 ├── winxp/
 └── ...
 ```

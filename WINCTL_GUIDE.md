@@ -8,6 +8,9 @@ A comprehensive guide to managing Windows Docker containers with `winctl.sh`.
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Commands Reference](#commands-reference)
+- [Snapshots & Restore](#snapshots--restore)
+- [Multi-Instance Support](#multi-instance-support)
+- [ISO Cache](#iso-cache)
 - [Configuration](#configuration)
 - [ARM64 Setup](#arm64-setup)
 - [Interactive Menus](#interactive-menus)
@@ -24,6 +27,10 @@ A comprehensive guide to managing Windows Docker containers with `winctl.sh`.
 - **22 Windows versions** from Windows 2000 to Windows 11
 - **Simple commands** to start, stop, and manage containers
 - **Interactive menus** when you don't specify a version
+- **Snapshot & restore** for backing up and restoring VM data
+- **LAN IP detection** with remote access URLs shown automatically
+- **Port conflict detection** before starting containers
+- **Disk usage monitoring** with per-VM and snapshot breakdowns
 - **Status caching** for fast performance
 - **Resource profiles** optimized for modern and legacy systems
 - **ARM64 auto-detection** with architecture-aware image selection and version filtering
@@ -104,6 +111,7 @@ Prerequisites Check
 
 [OK] All critical prerequisites passed!
   Architecture: amd64
+  LAN IP:       192.168.1.100
 ```
 
 On ARM64, the output also shows:
@@ -111,6 +119,7 @@ On ARM64, the output also shows:
   Architecture: arm64
   ARM64 image:  dockurr/windows-arm
   Supported:    win11 win11e win11l win10 win10e win10l
+  LAN IP:       192.168.1.100
 ```
 
 ### Fix Common Issues
@@ -148,10 +157,13 @@ After starting, you'll see connection details:
 Connection Details:
   → Web Viewer: http://localhost:8011
   → RDP:        localhost:3311
+  → LAN Web:    http://192.168.1.100:8011
+  → LAN RDP:    192.168.1.100:3311
 ```
 
 - **Web Viewer**: Open in browser for quick access
 - **RDP**: Use any RDP client for better performance
+- **LAN URLs**: Shown automatically when a LAN IP is detected — use these to access from other devices on your network
 
 ### 3. Check Status
 
@@ -187,10 +199,11 @@ Start one or more containers.
 **What it does:**
 1. Checks prerequisites (Docker, KVM)
 2. Detects architecture and blocks unsupported versions on ARM64
-3. Creates data directory if missing
-4. Checks available resources
-5. Starts the container
-6. Shows connection details
+3. Verifies ports are not already in use
+4. Creates data directory if missing
+5. Checks available resources
+6. Starts the container
+7. Shows connection details (including LAN URLs)
 
 ---
 
@@ -245,6 +258,8 @@ Example output:
   win11        Windows 11 Pro             running    8011     3311
   win10        Windows 10 Pro             stopped    8010     3310
   winxp        Windows XP Professional    not created 8005    3305
+
+  LAN IP: 192.168.1.100 — use http://192.168.1.100:<web-port> for remote access
 ```
 
 ---
@@ -370,6 +385,10 @@ Container Details: win11
   RDP Port:     3311
   Resources:    modern
   Compose:      compose/desktop/win11.yml
+  Web URL:      http://localhost:8011
+  RDP:          localhost:3311
+  LAN Web:      http://192.168.1.100:8011
+  LAN RDP:      192.168.1.100:3311
 ```
 
 ---
@@ -412,6 +431,337 @@ The cache is stored at `~/.cache/winctl/status.json` and auto-refreshes when:
 - Cache is older than 7 days
 - Cached data becomes stale
 - After start/stop/restart/rebuild operations
+
+---
+
+### open
+
+Open the web viewer in your default browser.
+
+```bash
+./winctl.sh open win11
+```
+
+If the container is not running, you'll be prompted to start it first.
+
+---
+
+### pull
+
+Pull the latest Docker image.
+
+```bash
+./winctl.sh pull
+```
+
+Automatically selects `dockurr/windows` or `dockurr/windows-arm` based on detected architecture. Shows whether the image was updated or already up to date.
+
+---
+
+### disk
+
+Show disk usage per VM data directory.
+
+```bash
+# All VMs
+./winctl.sh disk
+
+# Specific versions
+./winctl.sh disk win11 win10
+```
+
+Example output:
+```
+Disk Usage
+────────────────────────────────────────────────────────────
+
+  VERSION      SIZE         STATUS
+  ────────────────────────────────────
+  win11        45.2G        running
+  win10        32.1G        stopped
+  ────────────────────────────────────
+  Total:       77.3G
+
+  Snapshots:   12.5G (2 snapshots)
+    win11      12.5G (2 snapshots)
+```
+
+---
+
+### snapshot
+
+Back up a VM's data directory.
+
+```bash
+# Auto-named with timestamp
+./winctl.sh snapshot win11
+
+# Custom name
+./winctl.sh snapshot win11 before-update
+```
+
+The snapshot is saved to `snapshots/<version>/<name>/`. The container is stopped during the copy and restarted automatically.
+
+---
+
+### restore
+
+Restore a VM's data directory from a snapshot.
+
+```bash
+# Interactive snapshot selection
+./winctl.sh restore win11
+
+# Restore specific snapshot
+./winctl.sh restore win11 before-update
+```
+
+If no snapshot name is given, a list of available snapshots is shown for selection. Requires typing `yes` to confirm (destructive: replaces current data).
+
+---
+
+### clean
+
+Remove stopped containers and optionally purge their data directories.
+
+```bash
+# Remove stopped containers only
+./winctl.sh clean
+
+# Also delete data directories for stopped containers
+./winctl.sh clean --data
+```
+
+Requires typing `yes` to confirm. Shows freed disk space on completion.
+
+---
+
+## Snapshots & Restore
+
+`winctl.sh` supports snapshot and restore for VM data directories, stored under `snapshots/`.
+
+### Creating a Snapshot
+
+```bash
+# Snapshot with auto-generated timestamp name
+./winctl.sh snapshot win11
+
+# Snapshot with custom name
+./winctl.sh snapshot win11 before-update
+```
+
+The container is stopped during the copy to ensure data consistency, then restarted automatically.
+
+### Listing Snapshots
+
+```bash
+# Via disk command
+./winctl.sh disk
+
+# Or browse directly
+ls snapshots/win11/
+```
+
+### Restoring a Snapshot
+
+```bash
+# Interactive selection
+./winctl.sh restore win11
+
+# Direct restore
+./winctl.sh restore win11 before-update
+```
+
+**Warning:** Restore replaces all current data for the version. The container is stopped during restore and restarted automatically.
+
+### Snapshot Directory Structure
+
+```
+snapshots/
+├── win11/
+│   ├── 20260129-143022/    # Auto-named
+│   └── before-update/      # Custom-named
+└── win10/
+    └── 20260128-091500/
+```
+
+---
+
+## Multi-Instance Support
+
+Run multiple instances of the same Windows version with auto-managed ports and a JSON registry.
+
+### Creating an Instance
+
+```bash
+# Create winxp-1 with auto-allocated ports
+./winctl.sh start winxp --new
+
+# Create winxp-lab with a custom name
+./winctl.sh start winxp --new lab
+
+# Create winxp-lab and clone data from base winxp
+./winctl.sh start winxp --new lab --clone
+```
+
+The `--new` flag:
+1. Allocates unique ports (web: 9000+, RDP: 4000+)
+2. Generates a compose file in `instances/<name>.yml`
+3. Creates a data directory at `data/<name>/`
+4. Registers the instance in `instances/registry.json`
+5. Starts the container
+
+### Managing Instances
+
+Instances work transparently with all existing commands:
+
+```bash
+# Stop an instance
+./winctl.sh stop winxp-lab
+
+# Restart an instance
+./winctl.sh restart winxp-lab
+
+# View logs
+./winctl.sh logs winxp-lab -f
+
+# Open shell
+./winctl.sh shell winxp-lab
+
+# Inspect details
+./winctl.sh inspect winxp-lab
+
+# Open web viewer
+./winctl.sh open winxp-lab
+
+# Snapshot and restore
+./winctl.sh snapshot winxp-lab before-update
+./winctl.sh restore winxp-lab before-update
+```
+
+### Listing Instances
+
+```bash
+# List all instances
+./winctl.sh instances
+
+# Filter by base version
+./winctl.sh instances winxp
+```
+
+Example output:
+```
+Instances
+────────────────────────────────────────────────────────────
+
+  INSTANCE             BASE       STATUS     WEB      RDP      CREATED
+  ──────────────────────────────────────────────────────────────────────────────
+  winxp-1              winxp      running    9000     4000     2026-01-30
+  winxp-lab            winxp      stopped    9001     4001     2026-01-30
+```
+
+### Destroying an Instance
+
+```bash
+./winctl.sh destroy winxp-lab
+```
+
+This will:
+1. Stop and remove the container
+2. Delete the compose file
+3. Prompt to delete the data directory
+4. Remove the instance from the registry
+
+### How It Works
+
+- **Port allocation**: Web ports start at 9000, RDP at 4000, auto-incrementing to avoid conflicts
+- **Naming**: Instances are named `<version>-<suffix>` (e.g., `winxp-1`, `winxp-lab`)
+- **Registry**: All instances are tracked in `instances/registry.json`
+- **Compose files**: Generated in `instances/<name>.yml` with relative paths to env files and data
+- **No collisions**: Base versions never contain hyphens; instances always do
+
+### Instance Directory Structure
+
+```
+instances/
+├── registry.json          # Instance registry
+├── winxp-1.yml           # Generated compose file
+└── winxp-lab.yml         # Generated compose file
+
+data/
+├── winxp/                # Base version data
+├── winxp-1/              # Instance data
+└── winxp-lab/            # Instance data (cloned from base)
+```
+
+---
+
+## ISO Cache
+
+Windows ISOs are large (3-6 GB) and re-downloaded every time a new container is created for the same version. The ISO cache saves downloaded ISOs so new instances can skip the download.
+
+### How It Works
+
+1. Start a VM and wait for the ISO to download
+2. Cache the ISO: `./winctl.sh cache save winxp`
+3. Create new instances — cached ISOs are auto-restored: `./winctl.sh start winxp --new`
+
+When creating a new instance with `--new`, winctl checks `cache/<version>/` for ISOs and copies them into the new instance's data directory before starting the container. The container sees the ISO on startup and skips the download.
+
+### Caching an ISO
+
+```bash
+# Cache ISOs from an existing VM's data directory
+./winctl.sh cache save winxp
+./winctl.sh cache save win11
+```
+
+The ISOs are copied from `data/<name>/` to `cache/<base-version>/`.
+
+### Listing Cached ISOs
+
+```bash
+./winctl.sh cache list
+```
+
+Shows all cached ISOs grouped by version with file sizes and a total.
+
+### Removing Cached ISOs
+
+```bash
+# Remove cached ISOs for a specific version
+./winctl.sh cache rm winxp
+
+# Remove all cached ISOs
+./winctl.sh cache flush
+```
+
+Both commands require typing `yes` to confirm.
+
+### Auto-Restore
+
+When creating a new instance with `--new` (without `--clone`), winctl automatically checks the cache:
+
+```bash
+# If cache/winxp/ has ISOs, they are copied to data/winxp-1/ before start
+./winctl.sh start winxp --new
+```
+
+This is skipped when using `--clone`, since cloning copies all data from the base version including any ISOs.
+
+### Cache Directory Structure
+
+```
+cache/
+├── winxp/
+│   └── custom.iso
+├── win11/
+│   └── win11x64.iso
+└── win10/
+    └── win10x64.iso
+```
+
+> **Note:** The cache stores processed ISOs from the container's data directory, not raw downloads.
 
 ---
 
@@ -683,6 +1033,55 @@ rm -rf data/win11/*
 ./winctl.sh start win11
 ```
 
+### Scenario 8: Snapshot Before a Risky Change
+
+```bash
+# Create a snapshot before installing something
+./winctl.sh snapshot win11 before-update
+
+# Do your work...
+# If something goes wrong, restore:
+./winctl.sh restore win11 before-update
+```
+
+### Scenario 9: Clean Up Disk Space
+
+```bash
+# Check disk usage
+./winctl.sh disk
+
+# Remove stopped containers
+./winctl.sh clean
+
+# Remove stopped containers AND their data
+./winctl.sh clean --data
+```
+
+### Scenario 10: Quick Access from Browser
+
+```bash
+# Open web viewer directly in your browser
+./winctl.sh open win11
+
+# Or pull latest image before starting
+./winctl.sh pull
+./winctl.sh start win11
+```
+
+### Scenario 11: Access from Another Device on LAN
+
+```bash
+# Check your LAN IP
+./winctl.sh check
+
+# Start a VM — LAN URLs are shown automatically
+./winctl.sh start win11
+# → LAN Web: http://192.168.1.100:8011
+# → LAN RDP: 192.168.1.100:3311
+
+# Use the LAN URL from any device on the same network
+```
+
 ---
 
 ## Troubleshooting
@@ -701,8 +1100,8 @@ rm -rf data/win11/*
 
 **Common issues:**
 - KVM not accessible → Add user to kvm group
-- Port already in use → Stop other containers or services
-- Not enough disk space → Free up space or reduce DISK_SIZE
+- Port already in use → `start` auto-detects port conflicts; stop the conflicting service or container
+- Not enough disk space → Run `./winctl.sh disk` to check usage, or free up space
 
 ### Slow Performance
 
@@ -760,14 +1159,15 @@ Bookmark your commonly used VMs:
 
 Each VM has a "Shared" folder on the desktop that maps to the host. Use this to transfer files.
 
-### 4. Snapshots via Data Backup
+### 4. Snapshots
 
-The VM disk is stored in `data/<version>/`. Back it up to create a snapshot:
+Use the built-in snapshot and restore commands:
 ```bash
-./winctl.sh stop win11
-cp -r data/win11 data/win11-backup
-./winctl.sh start win11
+./winctl.sh snapshot win11 my-backup
+./winctl.sh restore win11 my-backup
 ```
+
+Snapshots are stored in `snapshots/<version>/<name>/`.
 
 ### 5. Running Multiple VMs
 
@@ -801,10 +1201,25 @@ For servers, you can start VMs and access only via RDP:
 │   ├── legacy/            # Vista, XP, 2000
 │   ├── server/            # Server 2003-2025
 │   └── tiny/              # Tiny10, Tiny11
+├── instances/
+│   ├── registry.json      # Instance registry
+│   ├── winxp-1.yml        # Generated compose files
+│   └── winxp-lab.yml
 ├── data/
 │   ├── win11/             # Win11 VM storage
 │   ├── win10/             # Win10 VM storage
+│   ├── winxp-1/           # Instance VM storage
+│   ├── winxp-lab/         # Instance VM storage
 │   └── ...                # Other VM storage
+├── snapshots/
+│   ├── win11/             # Win11 snapshots
+│   │   ├── 20260129-143022/
+│   │   └── before-update/
+│   └── ...                # Other version snapshots
+├── cache/
+│   ├── winxp/             # Cached winxp ISOs
+│   ├── win11/             # Cached win11 ISOs
+│   └── ...                # Other cached ISOs
 └── ~/.cache/winctl/
     └── status.json        # Status cache
 ```

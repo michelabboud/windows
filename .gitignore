@@ -6,3 +6,9 @@ data/*
 !data/*/
 data/*/**
 !data/*/.gitkeep
+
+# Instance compose files and registry (generated at runtime)
+instances/
+
+# ISO cache (cached ISOs for faster instance creation)
+cache/

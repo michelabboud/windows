@@ -1075,13 +1075,15 @@ cmd_start() {
             mkdir -p "$data_dir"
         fi
 
-        # Pre-populate from ISO cache if data dir is empty
-        if [[ -z "$(ls -A "$data_dir" 2>/dev/null)" ]]; then
+        # Pre-populate from ISO cache if no ISO exists in data dir
+        local existing_isos
+        existing_isos=$(find "$data_dir" -maxdepth 1 -name '*.iso' -type f 2>/dev/null || true)
+        if [[ -z "$existing_isos" ]]; then
             local cache_src="$ISO_CACHE_DIR/$RESOLVED_BASE"
             if [[ -d "$cache_src" ]]; then
-                local iso_files
-                iso_files=$(find "$cache_src" -maxdepth 1 -name '*.iso' -type f 2>/dev/null || true)
-                if [[ -n "$iso_files" ]]; then
+                local cached_isos
+                cached_isos=$(find "$cache_src" -maxdepth 1 -name '*.iso' -type f 2>/dev/null || true)
+                if [[ -n "$cached_isos" ]]; then
                     info "Restoring cached ISO for $RESOLVED_BASE..."
                     cp "$cache_src"/*.iso "$data_dir/"
                     # Reset magic byte so the container re-processes the ISO

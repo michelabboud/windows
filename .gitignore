@@ -7,6 +7,10 @@ data/*
 data/*/**
 !data/*/.gitkeep
 
+# Snapshot contents (generated at runtime)
+snapshots/*
+!snapshots/.gitkeep
+
 # Instance compose files and registry (generated at runtime)
 instances/
 
